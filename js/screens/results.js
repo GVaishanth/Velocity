@@ -17,146 +17,182 @@ const ResultsScreen = (() => {
 
     function render() {
         if (!container) return;
-        const results = StateManager.get('raceResults');
-        const race = StateManager.get('race');
+        try {
+            const results = StateManager.get('raceResults');
+            const race = StateManager.get('race');
 
-        if (!results || !race) {
-            container.innerHTML = `
-                <div style="text-align: center; padding: var(--space-3xl);">
-                    <h2>No race results</h2>
-                    <button class="btn btn-primary" id="res-back">Return Home</button>
-                </div>
-            `;
-            container.querySelector('#res-back')?.addEventListener('click', () => EventBus.emit('nav:home'));
-            return;
-        }
-
-        const podium = results.slice(0, 3);
-        const playerResults = results.filter(r => r.team.id === race.playerTeamId);
-        const bestPlayer = playerResults.sort((a, b) => a.position - b.position)[0];
-        const playerWon = bestPlayer?.position === 1;
-
-        const careerObj = typeof StateManager?.get === 'function' ? StateManager.get('career') : null;
-        const spOutcome = careerObj?._lastSponsorOutcome || null;
-
-        container.innerHTML = `
-            <div class="results-container">
-                <button class="home-btn" id="res-home-btn">⌂</button>
-
-                <div class="results-header">
-                    <h1 class="results-title">RACE RESULTS</h1>
-                    <div class="results-subtitle">${escapeHTML(race.track.flag)} ${escapeHTML(race.track.name)}</div>
-                </div>
-
-                <!-- PODIUM -->
-                <div class="podium-display">
-                    ${renderPodium(podium)}
-                </div>
-
-                ${playerWon ? `<div class="victory-banner">🏆 YOU WIN! 🏆</div>` : ''}
-
-                ${spOutcome ? `
-                    <div class="sponsor-outcome-banner" style="margin: 20px auto; max-width: 800px; padding: 20px; background: linear-gradient(135deg, rgba(20,20,30,0.92), rgba(10,10,15,0.98)); border: 3px solid ${spOutcome.met ? '#00FF41' : 'var(--red)'}; border-radius: 16px; text-align: center; box-shadow: 0 0 30px ${spOutcome.met ? 'rgba(0,255,65,0.4)' : 'rgba(255,0,51,0.4)'};">
-                        <div style="font-family: Orbitron; font-weight: 900; font-size: 18px; color: ${spOutcome.met ? '#00FF41' : 'var(--red)'}; margin-bottom: 8px; letter-spacing: 2px;">
-                            ${spOutcome.met ? '🤝 DEFINITIVE SPONSOR PAYOUT SECURED!' : '⚠️ CORPORATE SPONSOR FINE FAX RECEIVED!'}
-                        </div>
-                        <div style="font-family: Rajdhani; font-size: 15px; font-weight: 700; color: var(--gray-200); line-height: 1.4;">
-                            ${spOutcome.met ? 
-                              `Corporate Primary Sponsor <strong style="color: #FFFFFF; font-family: Orbitron;">${escapeHTML(spOutcome.name)}</strong> wires <strong style="color: #00FF41; font-family: Orbitron;">+$${formatMoney(spOutcome.amount)}</strong> directly to your Constructor operations for satisfying your mandatory target setup!` : 
-                              `Corporate Billing for primary sponsor <strong style="color: #FFFFFF; font-family: Orbitron;">${escapeHTML(spOutcome.name)}</strong> sends a highly sarcastic Esport fax billing your Constructor team <strong style="color: var(--red); font-family: Orbitron;">-$${formatMoney(spOutcome.amount)}</strong> for breaching your mandatory finish agreement!`}
-                        </div>
+            if (!results || !Array.isArray(results) || results.length === 0 || !race) {
+                container.innerHTML = `
+                    <div style="text-align: center; padding: var(--space-3xl);">
+                        <h2 style="font-family: Orbitron; color: var(--yellow);">NO CLASSIFICATION RECOGNIZED</h2>
+                        <p style="color: var(--gray-400); font-family: Rajdhani; margin-bottom: 20px;">The Grand Prix results sheet is currently syncing or unavailable.</p>
+                        <button class="btn btn-glow" id="res-back">RETURN TO HOME</button>
                     </div>
-                ` : ''}
+                `;
+                container.querySelector('#res-back')?.addEventListener('click', () => typeof EventBus !== 'undefined' && EventBus.emit('nav:home'));
+                return;
+            }
 
-                <!-- PLAYER SUMMARY -->
-                <div class="player-summary">
-                    <h2 class="summary-title">YOUR PERFORMANCE</h2>
-                    <div class="player-results-grid">
-                        ${playerResults.map(r => `
-                            <div class="player-result-card ${r.position === 1 ? 'winner' : ''} ${r.position <= 3 ? 'podium' : ''}">
-                                <div class="result-pos">P${r.position}</div>
-                                <div class="result-info">
-                                    <div class="result-driver">${escapeHTML(r.driver.name)}</div>
-                                    <div class="result-detail">
-                                        ${r.status === 'DNF' ? `<span style="color: var(--red)">DNF: ${escapeHTML(r.dnfReason || 'Retired')}</span>` :
-                                          `Best Lap: ${formatLapTime(r.bestLap)}`}
+            const podium = results.slice(0, 3);
+            const playerResults = results.filter(r => r && r.team && r.team.id === race.playerTeamId);
+            const bestPlayer = playerResults.sort((a, b) => (a?.position || 99) - (b?.position || 99))[0];
+            const playerWon = bestPlayer?.position === 1;
+
+            const careerObj = typeof StateManager?.get === 'function' ? StateManager.get('career') : null;
+            const spOutcome = careerObj?._lastSponsorOutcome || null;
+
+            container.innerHTML = `
+                <div class="results-container">
+                    <button class="home-btn" id="res-home-btn">⌂</button>
+
+                    <div class="results-header">
+                        <h1 class="results-title">RACE RESULTS</h1>
+                        <div class="results-subtitle">${escapeHTML(race.track?.flag || '🏁')} ${escapeHTML(race.track?.name || 'Grand Prix')}</div>
+                    </div>
+
+                    <!-- PODIUM -->
+                    <div class="podium-display">
+                        ${renderPodium(podium)}
+                    </div>
+
+                    ${playerWon ? `<div class="victory-banner">🏆 YOU WIN! 🏆</div>` : ''}
+
+                    ${spOutcome ? `
+                        <div class="sponsor-outcome-banner" style="margin: 20px auto; max-width: 800px; padding: 20px; background: linear-gradient(135deg, rgba(20,20,30,0.92), rgba(10,10,15,0.98)); border: 3px solid ${spOutcome.met ? '#00FF41' : 'var(--red)'}; border-radius: 16px; text-align: center; box-shadow: 0 0 30px ${spOutcome.met ? 'rgba(0,255,65,0.4)' : 'rgba(255,0,51,0.4)'};">
+                            <div style="font-family: Orbitron; font-weight: 900; font-size: 18px; color: ${spOutcome.met ? '#00FF41' : 'var(--red)'}; margin-bottom: 8px; letter-spacing: 2px;">
+                                ${spOutcome.met ? '🤝 DEFINITIVE SPONSOR PAYOUT SECURED!' : '⚠️ CORPORATE SPONSOR FINE FAX RECEIVED!'}
+                            </div>
+                            <div style="font-family: Rajdhani; font-size: 15px; font-weight: 700; color: var(--gray-200); line-height: 1.4;">
+                                ${spOutcome.met ? 
+                                  `Corporate Primary Sponsor <strong style="color: #FFFFFF; font-family: Orbitron;">${escapeHTML(spOutcome.name)}</strong> wires <strong style="color: #00FF41; font-family: Orbitron;">+$${formatMoney(spOutcome.amount)}</strong> directly to your Constructor operations for satisfying your mandatory target setup!` : 
+                                  `Corporate Billing for primary sponsor <strong style="color: #FFFFFF; font-family: Orbitron;">${escapeHTML(spOutcome.name)}</strong> sends a highly sarcastic Esport fax billing your Constructor team <strong style="color: var(--red); font-family: Orbitron;">-$${formatMoney(spOutcome.amount)}</strong> for breaching your mandatory finish agreement!`}
+                            </div>
+                        </div>
+                    ` : ''}
+
+                    <!-- PLAYER SUMMARY -->
+                    <div class="player-summary">
+                        <h2 class="summary-title">YOUR PERFORMANCE</h2>
+                        <div class="player-results-grid">
+                            ${playerResults.map(r => `
+                                <div class="player-result-card ${r.position === 1 ? 'winner' : ''} ${r.position <= 3 ? 'podium' : ''}">
+                                    <div class="result-pos">P${r.position || 0}</div>
+                                    <div class="result-info">
+                                        <div class="result-driver">${escapeHTML(r?.driver?.name || 'RACER')}</div>
+                                        <div class="result-detail">
+                                            ${r.status === 'DNF' ? `<span style="color: var(--red)">DNF: ${escapeHTML(r.dnfReason || 'Retired')}</span>` :
+                                              `Best Lap: ${formatLapTimeLocal(r.bestLap)}`}
+                                        </div>
+                                    </div>
+                                    <div class="result-points">
+                                        <div class="points-num">${r.points || 0}</div>
+                                        <div class="points-label">PTS</div>
+                                        ${r.fastestLapBonus > 0 ? '<div style="color: #AA33FF; font-size: 10px;">+1 FL</div>' : ''}
                                     </div>
                                 </div>
-                                <div class="result-points">
-                                    <div class="points-num">${r.points}</div>
-                                    <div class="points-label">PTS</div>
-                                    ${r.fastestLapBonus > 0 ? '<div style="color: #AA33FF; font-size: 10px;">+1 FL</div>' : ''}
-                                </div>
-                            </div>
-                        `).join('')}
+                            `).join('')}
+                        </div>
+                    </div>
+
+                    <!-- FULL RESULTS -->
+                    <div class="full-results">
+                        <h2 class="summary-title">FULL CLASSIFICATION</h2>
+                        <table class="results-table">
+                            <thead>
+                                <tr>
+                                    <th>POS</th>
+                                    <th>DRIVER</th>
+                                    <th>TEAM</th>
+                                    <th>TIME / GAP</th>
+                                    <th>BEST LAP</th>
+                                    <th>PTS</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${results.map(r => `
+                                    <tr class="${r?.team?.id === race.playerTeamId ? 'player-result' : ''} ${r.status === 'DNF' ? 'dnf' : ''}">
+                                        <td class="pos-cell">
+                                            <span class="pos-num ${r.position === 1 ? 'pos-1' : r.position === 2 ? 'pos-2' : r.position === 3 ? 'pos-3' : ''}">${r.position || 0}</span>
+                                        </td>
+                                        <td>
+                                            <span style="margin-right: 6px;">${escapeHTML(r?.driver?.flag || '')}</span>
+                                            ${escapeHTML(r?.driver?.name || 'RACER')}
+                                        </td>
+                                        <td>
+                                            <span style="display: inline-block; width: 4px; height: 14px; background: ${r?.team?.color || '#FFF'}; margin-right: 6px; vertical-align: middle;"></span>
+                                            ${escapeHTML(r?.team?.shortName || r?.team?.name || 'TEAM')}
+                                        </td>
+                                        <td class="time-cell">
+                                            ${r.status === 'DNF' ? 'DNF' :
+                                              r.gap === null ? formatRaceTime(r.time) : formatGapLocal(r.gap)}
+                                        </td>
+                                        <td class="time-cell">${r.bestLap ? formatLapTimeLocal(r.bestLap) : '—'}</td>
+                                        <td style="font-family: 'Orbitron'; font-weight: 700;">${r.points || 0}${r.fastestLapBonus > 0 ? '+1' : ''}</td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div class="results-actions">
+                        ${race.isScenario ? `
+                            <button class="btn btn-glow btn-large" id="res-scenario-action" style="background: rgba(255,215,0,0.15); border-color: #FFD700; color: #FFD700; font-weight: 900; font-family: Orbitron; padding: 16px 32px;">
+                                RETURN TO HALL OF GLORY →
+                            </button>
+                        ` : race.isCareerRace ? `
+                            <button class="btn btn-primary btn-large" id="res-continue">
+                                CONTINUE TO DASHBOARD →
+                            </button>
+                        ` : `
+                            <button class="btn btn-primary btn-large" id="res-home-action">
+                                RETURN HOME
+                            </button>
+                        `}
                     </div>
                 </div>
+            `;
 
-                <!-- FULL RESULTS -->
-                <div class="full-results">
-                    <h2 class="summary-title">FULL CLASSIFICATION</h2>
-                    <table class="results-table">
-                        <thead>
-                            <tr>
-                                <th>POS</th>
-                                <th>DRIVER</th>
-                                <th>TEAM</th>
-                                <th>TIME / GAP</th>
-                                <th>BEST LAP</th>
-                                <th>PTS</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            ${results.map(r => `
-                                <tr class="${r.team.id === race.playerTeamId ? 'player-result' : ''} ${r.status === 'DNF' ? 'dnf' : ''}">
-                                    <td class="pos-cell">
-                                        <span class="pos-num ${r.position === 1 ? 'pos-1' : r.position === 2 ? 'pos-2' : r.position === 3 ? 'pos-3' : ''}">${r.position}</span>
-                                    </td>
-                                    <td>
-                                        <span style="margin-right: 6px;">${r.driver.flag || ''}</span>
-                                        ${escapeHTML(r.driver.name)}
-                                    </td>
-                                    <td>
-                                        <span style="display: inline-block; width: 4px; height: 14px; background: ${r.team.color}; margin-right: 6px; vertical-align: middle;"></span>
-                                        ${escapeHTML(r.team.shortName || r.team.name)}
-                                    </td>
-                                    <td class="time-cell">
-                                        ${r.status === 'DNF' ? 'DNF' :
-                                          r.gap === null ? formatRaceTime(r.time) : formatGap(r.gap)}
-                                    </td>
-                                    <td class="time-cell">${r.bestLap ? formatLapTime(r.bestLap) : '—'}</td>
-                                    <td style="font-family: 'Orbitron'; font-weight: 700;">${r.points}${r.fastestLapBonus > 0 ? '+1' : ''}</td>
-                                </tr>
-                            `).join('')}
-                        </tbody>
-                    </table>
+            injectStyles();
+            attachContentListeners();
+
+            if (playerWon && typeof Transitions !== 'undefined') {
+                setTimeout(() => Transitions.confetti?.(4000), 500);
+            }
+        } catch (err) {
+            console.error('[ResultsScreen] Render error:', err);
+            container.innerHTML = `
+                <div style="text-align: center; padding: var(--space-3xl);">
+                    <h2 style="font-family: Orbitron; color: var(--red);">CLASSIFICATION SHEET REFRESH FAILURE</h2>
+                    <p style="color: var(--gray-400); font-family: Rajdhani; margin-bottom: 20px;">An unhandled reference was intercepted while constructing the full classification sheets.</p>
+                    <button class="btn btn-glow" id="res-back-err">RETURN TO PADDOCK</button>
                 </div>
-
-                <div class="results-actions">
-                    ${race.isScenario ? `
-                        <button class="btn btn-glow btn-large" id="res-scenario-action" style="background: rgba(255,215,0,0.15); border-color: #FFD700; color: #FFD700; font-weight: 900; font-family: Orbitron; padding: 16px 32px;">
-                            RETURN TO HALL OF GLORY →
-                        </button>
-                    ` : race.isCareerRace ? `
-                        <button class="btn btn-primary btn-large" id="res-continue">
-                            CONTINUE TO DASHBOARD →
-                        </button>
-                    ` : `
-                        <button class="btn btn-primary btn-large" id="res-home-action">
-                            RETURN HOME
-                        </button>
-                    `}
-                </div>
-            </div>
-        `;
-
-        injectStyles();
-        attachContentListeners();
-
-        // Confetti for victory
-        if (playerWon && typeof Transitions !== 'undefined') {
-            setTimeout(() => Transitions.confetti(4000), 500);
+            `;
+            container.querySelector('#res-back-err')?.addEventListener('click', () => typeof EventBus !== 'undefined' && EventBus.emit('nav:home'));
         }
+    }
+
+    function formatLapTimeLocal(seconds) {
+        if (typeof formatLapTime === 'function') {
+            try { return formatLapTime(seconds); } catch {}
+        }
+        if (!seconds || isNaN(seconds)) return '--:--.---';
+        const m = Math.floor(seconds / 60);
+        const s = Math.floor(seconds % 60);
+        const ms = Math.floor((seconds % 1) * 1000);
+        return `${m}:${s.toString().padStart(2, '0')}.${ms.toString().padStart(3, '0')}`;
+    }
+
+    function formatGapLocal(seconds) {
+        if (typeof formatGap === 'function') {
+            try { return formatGap(seconds); } catch {}
+        }
+        if (seconds === null || seconds === undefined || isNaN(seconds)) return '';
+        if (Math.abs(seconds) < 0.001) return 'LEADER';
+        const abs = Math.abs(seconds);
+        if (abs < 60) return `+${abs.toFixed(3)}`;
+        const m = Math.floor(abs / 60);
+        const s = (abs % 60).toFixed(3);
+        return `+${m}:${s.padStart(6, '0')}`;
     }
 
     function renderPodium(podium) {
