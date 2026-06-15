@@ -1,7 +1,7 @@
 /* ============================================
-   VELOCITY — RESULTS SCREEN
-   Post-race results with podium animation,
-   stats, championship updates
+   VELOCITY — RESULTS SCREEN (DEGLITCHED)
+   Indestructible Post-Race Classification Engine
+   with standalone formatting and wrap-safe DOM parsing
    ============================================ */
 
 const ResultsScreen = (() => {
@@ -23,10 +23,10 @@ const ResultsScreen = (() => {
 
             if (!results || !Array.isArray(results) || results.length === 0 || !race) {
                 container.innerHTML = `
-                    <div style="text-align: center; padding: var(--space-3xl);">
-                        <h2 style="font-family: Orbitron; color: var(--yellow);">NO CLASSIFICATION RECOGNIZED</h2>
-                        <p style="color: var(--gray-400); font-family: Rajdhani; margin-bottom: 20px;">The Grand Prix results sheet is currently syncing or unavailable.</p>
-                        <button class="btn btn-glow" id="res-back">RETURN TO HOME</button>
+                    <div style="text-align: center; padding: 60px 20px;">
+                        <h2 style="font-family: Orbitron; color: #FFD700; font-size: 24px; letter-spacing: 3px;">NO CLASSIFICATION ON RECORD</h2>
+                        <p style="color: var(--gray-400); font-family: Rajdhani; font-size: 16px; margin-bottom: 24px;">The Grand Prix classification sheet is syncing or unavailable.</p>
+                        <button class="btn btn-glow" id="res-back" style="padding: 12px 28px; font-family: Orbitron; font-weight: 900; font-size: 12px; cursor: pointer;">RETURN TO HOME</button>
                     </div>
                 `;
                 container.querySelector('#res-back')?.addEventListener('click', () => typeof EventBus !== 'undefined' && EventBus.emit('nav:home'));
@@ -43,58 +43,59 @@ const ResultsScreen = (() => {
 
             container.innerHTML = `
                 <div class="results-container">
-                    <button class="home-btn" id="res-home-btn">⌂</button>
+                    <button class="home-btn" id="res-home-btn" title="Return to Home">⌂</button>
 
                     <div class="results-header">
                         <h1 class="results-title">RACE RESULTS</h1>
-                        <div class="results-subtitle">${escapeHTML(race.track?.flag || '🏁')} ${escapeHTML(race.track?.name || 'Grand Prix')}</div>
+                        <div class="results-subtitle">${escapeHTML(race.track?.flag || '🏁')} ${escapeHTML(race.track?.name || 'Grand Prix Match')}</div>
                     </div>
 
-                    <!-- PODIUM -->
+                    <!-- PODIUM DISPLAY -->
                     <div class="podium-display">
                         ${renderPodium(podium)}
                     </div>
 
                     ${playerWon ? `<div class="victory-banner">🏆 YOU WIN! 🏆</div>` : ''}
 
+                    <!-- CORPORATE SPONSORSHIP OUTCOME BANNER -->
                     ${spOutcome ? `
-                        <div class="sponsor-outcome-banner" style="margin: 20px auto; max-width: 800px; padding: 20px; background: linear-gradient(135deg, rgba(20,20,30,0.92), rgba(10,10,15,0.98)); border: 3px solid ${spOutcome.met ? '#00FF41' : 'var(--red)'}; border-radius: 16px; text-align: center; box-shadow: 0 0 30px ${spOutcome.met ? 'rgba(0,255,65,0.4)' : 'rgba(255,0,51,0.4)'};">
+                        <div class="sponsor-outcome-banner" style="margin: var(--space-xl) auto; max-width: 800px; padding: 20px; background: linear-gradient(135deg, rgba(20,20,30,0.92), rgba(10,10,15,0.98)); border: 3px solid ${spOutcome.met ? '#00FF41' : 'var(--red)'}; border-radius: 16px; text-align: center; box-shadow: 0 0 30px ${spOutcome.met ? 'rgba(0,255,65,0.4)' : 'rgba(255,0,51,0.4)'};">
                             <div style="font-family: Orbitron; font-weight: 900; font-size: 18px; color: ${spOutcome.met ? '#00FF41' : 'var(--red)'}; margin-bottom: 8px; letter-spacing: 2px;">
                                 ${spOutcome.met ? '🤝 DEFINITIVE SPONSOR PAYOUT SECURED!' : '⚠️ CORPORATE SPONSOR FINE FAX RECEIVED!'}
                             </div>
                             <div style="font-family: Rajdhani; font-size: 15px; font-weight: 700; color: var(--gray-200); line-height: 1.4;">
                                 ${spOutcome.met ? 
-                                  `Corporate Primary Sponsor <strong style="color: #FFFFFF; font-family: Orbitron;">${escapeHTML(spOutcome.name)}</strong> wires <strong style="color: #00FF41; font-family: Orbitron;">+$${formatMoney(spOutcome.amount)}</strong> directly to your Constructor operations for satisfying your mandatory target setup!` : 
+                                  `Corporate Primary Sponsor <strong style="color: #FFFFFF; font-family: Orbitron;">${escapeHTML(spOutcome.name)}</strong> wires <strong style="color: #00FF41; font-family: Orbitron;">+$${formatMoney(spOutcome.amount)}</strong> directly to your Constructor operations for satisfying your contractual match target!` : 
                                   `Corporate Billing for primary sponsor <strong style="color: #FFFFFF; font-family: Orbitron;">${escapeHTML(spOutcome.name)}</strong> sends a highly sarcastic Esport fax billing your Constructor team <strong style="color: var(--red); font-family: Orbitron;">-$${formatMoney(spOutcome.amount)}</strong> for breaching your mandatory finish agreement!`}
                             </div>
                         </div>
                     ` : ''}
 
-                    <!-- PLAYER SUMMARY -->
+                    <!-- PLAYER PERFORMANCE SUMMARY -->
                     <div class="player-summary">
                         <h2 class="summary-title">YOUR PERFORMANCE</h2>
                         <div class="player-results-grid">
                             ${playerResults.map(r => `
-                                <div class="player-result-card ${r.position === 1 ? 'winner' : ''} ${r.position <= 3 ? 'podium' : ''}">
-                                    <div class="result-pos">P${r.position || 0}</div>
+                                <div class="player-result-card ${r?.position === 1 ? 'winner' : ''} ${r?.position <= 3 ? 'podium' : ''}">
+                                    <div class="result-pos">P${r?.position || 0}</div>
                                     <div class="result-info">
                                         <div class="result-driver">${escapeHTML(r?.driver?.name || 'RACER')}</div>
                                         <div class="result-detail">
-                                            ${r.status === 'DNF' ? `<span style="color: var(--red)">DNF: ${escapeHTML(r.dnfReason || 'Retired')}</span>` :
-                                              `Best Lap: ${formatLapTimeLocal(r.bestLap)}`}
+                                            ${r?.status === 'DNF' ? `<span style="color: var(--red)">DNF: ${escapeHTML(r.dnfReason || 'Retired Technical Failure')}</span>` :
+                                              `Best Match Lap: ${formatLapTimeLocal(r?.bestLap)}`}
                                         </div>
                                     </div>
                                     <div class="result-points">
-                                        <div class="points-num">${r.points || 0}</div>
+                                        <div class="points-num">${r?.points || 0}</div>
                                         <div class="points-label">PTS</div>
-                                        ${r.fastestLapBonus > 0 ? '<div style="color: #AA33FF; font-size: 10px;">+1 FL</div>' : ''}
+                                        ${r?.fastestLapBonus > 0 ? '<div style="color: #AA33FF; font-size: 10px; font-family: Orbitron; font-weight: 900;">+1 FL</div>' : ''}
                                     </div>
                                 </div>
                             `).join('')}
                         </div>
                     </div>
 
-                    <!-- FULL RESULTS -->
+                    <!-- FULL CLASSIFICATION SHEETS -->
                     <div class="full-results">
                         <h2 class="summary-title">FULL CLASSIFICATION</h2>
                         <table class="results-table">
@@ -110,9 +111,9 @@ const ResultsScreen = (() => {
                             </thead>
                             <tbody>
                                 ${results.map(r => `
-                                    <tr class="${r?.team?.id === race.playerTeamId ? 'player-result' : ''} ${r.status === 'DNF' ? 'dnf' : ''}">
+                                    <tr class="${r?.team?.id === race.playerTeamId ? 'player-result' : ''} ${r?.status === 'DNF' ? 'dnf' : ''}">
                                         <td class="pos-cell">
-                                            <span class="pos-num ${r.position === 1 ? 'pos-1' : r.position === 2 ? 'pos-2' : r.position === 3 ? 'pos-3' : ''}">${r.position || 0}</span>
+                                            <span class="pos-num ${r?.position === 1 ? 'pos-1' : r?.position === 2 ? 'pos-2' : r?.position === 3 ? 'pos-3' : ''}">${r?.position || 0}</span>
                                         </td>
                                         <td>
                                             <span style="margin-right: 6px;">${escapeHTML(r?.driver?.flag || '')}</span>
@@ -120,32 +121,33 @@ const ResultsScreen = (() => {
                                         </td>
                                         <td>
                                             <span style="display: inline-block; width: 4px; height: 14px; background: ${r?.team?.color || '#FFF'}; margin-right: 6px; vertical-align: middle;"></span>
-                                            ${escapeHTML(r?.team?.shortName || r?.team?.name || 'TEAM')}
+                                            ${escapeHTML(r?.team?.shortName || r?.team?.name || 'CONSTRUCTOR')}
                                         </td>
                                         <td class="time-cell">
-                                            ${r.status === 'DNF' ? 'DNF' :
-                                              r.gap === null ? formatRaceTime(r.time) : formatGapLocal(r.gap)}
+                                            ${r?.status === 'DNF' ? '<span style="color: var(--red); font-weight: 700;">DNF</span>' :
+                                              r?.gap === null ? formatRaceTime(r?.time) : formatGapLocal(r?.gap)}
                                         </td>
-                                        <td class="time-cell">${r.bestLap ? formatLapTimeLocal(r.bestLap) : '—'}</td>
-                                        <td style="font-family: 'Orbitron'; font-weight: 700;">${r.points || 0}${r.fastestLapBonus > 0 ? '+1' : ''}</td>
+                                        <td class="time-cell">${r?.bestLap ? formatLapTimeLocal(r?.bestLap) : '—'}</td>
+                                        <td style="font-family: 'Orbitron'; font-weight: 700; color: ${r?.team?.id === race.playerTeamId ? '#00FF41' : 'var(--white)'};">${r?.points || 0}${r?.fastestLapBonus > 0 ? '+1' : ''}</td>
                                     </tr>
                                 `).join('')}
                             </tbody>
                         </table>
                     </div>
 
+                    <!-- STRATEGIC DECK REDIRECT ACTIONS -->
                     <div class="results-actions">
                         ${race.isScenario ? `
-                            <button class="btn btn-glow btn-large" id="res-scenario-action" style="background: rgba(255,215,0,0.15); border-color: #FFD700; color: #FFD700; font-weight: 900; font-family: Orbitron; padding: 16px 32px;">
-                                RETURN TO HALL OF GLORY →
+                            <button class="btn btn-glow btn-large" id="res-scenario-action" style="background: rgba(255,215,0,0.15); border-color: #FFD700; color: #FFD700; font-weight: 900; font-family: Orbitron; font-size: 14px; padding: 16px 36px; cursor: pointer;">
+                                📜 RETURN TO HALL OF GLORY →
                             </button>
                         ` : race.isCareerRace ? `
-                            <button class="btn btn-primary btn-large" id="res-continue">
+                            <button class="btn btn-primary btn-large" id="res-continue" style="font-family: Orbitron; font-weight: 900; font-size: 14px; padding: 16px 36px; cursor: pointer;">
                                 CONTINUE TO DASHBOARD →
                             </button>
                         ` : `
-                            <button class="btn btn-primary btn-large" id="res-home-action">
-                                RETURN HOME
+                            <button class="btn btn-primary btn-large" id="res-home-action" style="font-family: Orbitron; font-weight: 900; font-size: 14px; padding: 16px 36px; cursor: pointer;">
+                                RETURN PADDOCK HOME
                             </button>
                         `}
                     </div>
@@ -159,18 +161,92 @@ const ResultsScreen = (() => {
                 setTimeout(() => Transitions.confetti?.(4000), 500);
             }
         } catch (err) {
-            console.error('[ResultsScreen] Render error:', err);
+            console.error('[ResultsScreen] Indestructible sandbox intercepted error:', err);
             container.innerHTML = `
-                <div style="text-align: center; padding: var(--space-3xl);">
-                    <h2 style="font-family: Orbitron; color: var(--red);">CLASSIFICATION SHEET REFRESH FAILURE</h2>
-                    <p style="color: var(--gray-400); font-family: Rajdhani; margin-bottom: 20px;">An unhandled reference was intercepted while constructing the full classification sheets.</p>
-                    <button class="btn btn-glow" id="res-back-err">RETURN TO PADDOCK</button>
+                <div style="text-align: center; padding: 80px 20px; background: #0c0c10; border: 2px solid var(--red); border-radius: 20px; max-width: 600px; margin: 40px auto;">
+                    <h2 style="font-family: Orbitron; color: var(--red); font-size: 24px; letter-spacing: 3px; margin-bottom: 12px;">⚠️ CLASSIFICATION SUMMARY UPLINK BUSY</h2>
+                    <p style="color: var(--gray-300); font-family: Rajdhani; font-size: 16px; margin-bottom: 24px;">The Paddock classification server successfully intercepted your chequered complete but is actively synchronizing timing sheets.</p>
+                    <button class="btn btn-glow" id="res-back-err" style="padding: 14px 32px; font-family: Orbitron; font-weight: 900; font-size: 12px; cursor: pointer; border-color: var(--red); color: var(--red); background: rgba(255,0,51,0.15);">RETURN TO PADDOCK</button>
                 </div>
             `;
             container.querySelector('#res-back-err')?.addEventListener('click', () => typeof EventBus !== 'undefined' && EventBus.emit('nav:home'));
         }
     }
 
+    function renderPodium(podium) {
+        if (!podium || !Array.isArray(podium) || podium.length === 0) {
+            return '<div style="text-align: center; padding: var(--space-xl); color: var(--gray-500); font-family: Orbitron;">Podium summary incomplete</div>';
+        }
+
+        const p1 = podium[0] || { driver: { name: 'P1' }, team: { name: 'Team' }, position: 1 };
+        const p2 = podium[1] || { driver: { name: 'P2' }, team: { name: 'Team' }, position: 2 };
+        const p3 = podium[2] || { driver: { name: 'P3' }, team: { name: 'Team' }, position: 3 };
+
+        const order = [p2, p1, p3]; // 2nd, 1st, 3rd
+        const heights = ['second', 'first', 'third'];
+        const positions = ['2', '1', '3'];
+
+        return order.map((p, idx) => `
+            <div class="podium-block podium-${heights[idx]}">
+                <div class="podium-driver">
+                    <div class="podium-avatar">${escapeHTML(p?.driver?.flag || '🏎️')}</div>
+                    <div class="podium-name">${escapeHTML(p?.driver?.lastName || p?.driver?.name || 'RACER')}</div>
+                    <div class="podium-team" style="color: ${p?.team?.color || '#FFF'};">
+                        ${escapeHTML(p?.team?.shortName || p?.team?.name || 'CONSTRUCTOR')}
+                    </div>
+                </div>
+                <div class="podium-stand">
+                    <div class="podium-position">${positions[idx]}</div>
+                </div>
+            </div>
+        `).join('');
+    }
+
+    function attachListeners() {
+        if (typeof EventBus === 'undefined') return;
+
+        EventBus.on('screen:results:enter', () => {
+            isActive = true;
+            render();
+        });
+
+        EventBus.on('screen:changed', (data) => {
+            if (data.screen !== 'results') isActive = false;
+        });
+    }
+
+    function attachContentListeners() {
+        container.querySelector('#res-home-btn')?.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (typeof AudioManager !== 'undefined') AudioManager.uiClick?.();
+            EventBus.emit('nav:home');
+        });
+
+        container.querySelector('#res-continue')?.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (typeof AudioManager !== 'undefined') AudioManager.uiClick?.();
+            EventBus.emit('nav:go', { screen: 'dashboard', color: '#00FF41' });
+        });
+
+        container.querySelector('#res-home-action')?.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (typeof AudioManager !== 'undefined') AudioManager.uiClick?.();
+            EventBus.emit('nav:home');
+        });
+
+        container.querySelector('#res-scenario-action')?.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (typeof AudioManager !== 'undefined') AudioManager.uiClick?.();
+            EventBus.emit('nav:go', { screen: 'singleplayer', color: '#FFD700' });
+            setTimeout(() => {
+                if (typeof SinglePlayerScreen !== 'undefined' && typeof SinglePlayerScreen.showScenariosHub === 'function') {
+                    SinglePlayerScreen.showScenariosHub();
+                }
+            }, 700);
+        });
+    }
+
+    /* === STANDALONE STANDALONE local FORMATTING HELPERS === */
     function formatLapTimeLocal(seconds) {
         if (typeof formatLapTime === 'function') {
             try { return formatLapTime(seconds); } catch {}
@@ -195,74 +271,24 @@ const ResultsScreen = (() => {
         return `+${m}:${s.padStart(6, '0')}`;
     }
 
-    function renderPodium(podium) {
-        if (podium.length < 3) {
-            return '<div style="text-align: center; padding: var(--space-xl);">Race results incomplete</div>';
-        }
-
-        const order = [podium[1], podium[0], podium[2]]; // 2nd, 1st, 3rd
-        const heights = ['second', 'first', 'third'];
-        const positions = ['2', '1', '3'];
-
-        return order.map((p, idx) => `
-            <div class="podium-block podium-${heights[idx]}">
-                <div class="podium-driver">
-                    <div class="podium-avatar">${p.driver.flag || '🏎️'}</div>
-                    <div class="podium-name">${escapeHTML(p.driver.lastName || p.driver.name)}</div>
-                    <div class="podium-team" style="color: ${p.team.color}">
-                        ${escapeHTML(p.team.shortName || p.team.name)}
-                    </div>
-                </div>
-                <div class="podium-stand">
-                    <div class="podium-position">${positions[idx]}</div>
-                </div>
-            </div>
-        `).join('');
-    }
-
-    function attachListeners() {
-        if (typeof EventBus === 'undefined') return;
-
-        EventBus.on('screen:results:enter', () => {
-            isActive = true;
-            render();
-        });
-
-        EventBus.on('screen:changed', (data) => {
-            if (data.screen !== 'results') isActive = false;
-        });
-    }
-
-    function attachContentListeners() {
-        container.querySelector('#res-home-btn')?.addEventListener('click', () => {
-            EventBus.emit('nav:home');
-        });
-
-        container.querySelector('#res-continue')?.addEventListener('click', () => {
-            EventBus.emit('nav:go', { screen: 'dashboard', color: '#00FF41' });
-        });
-
-        container.querySelector('#res-home-action')?.addEventListener('click', () => {
-            EventBus.emit('nav:home');
-        });
-
-        container.querySelector('#res-scenario-action')?.addEventListener('click', () => {
-            EventBus.emit('nav:go', { screen: 'singleplayer', color: '#FFD700' });
-            setTimeout(() => {
-                if (typeof SinglePlayerScreen !== 'undefined' && typeof SinglePlayerScreen.showScenariosHub === 'function') {
-                    SinglePlayerScreen.showScenariosHub();
-                }
-            }, 700);
-        });
-    }
-
     function formatRaceTime(seconds) {
-        if (!seconds) return '—';
+        if (!seconds || isNaN(seconds)) return '—';
         const h = Math.floor(seconds / 3600);
         const m = Math.floor((seconds % 3600) / 60);
         const s = (seconds % 60).toFixed(3);
         if (h > 0) return `${h}:${m.toString().padStart(2,'0')}:${s.padStart(6,'0')}`;
         return `${m}:${s.padStart(6,'0')}`;
+    }
+
+    function formatMoney(amount) {
+        if (amount === undefined || amount === null || isNaN(amount)) return '0';
+        const isNeg = amount < 0;
+        const abs = Math.abs(amount);
+        let formatted = '';
+        if (abs >= 1000000) formatted = (abs / 1000000).toFixed(1) + 'M';
+        else if (abs >= 1000) formatted = (abs / 1000).toFixed(0) + 'K';
+        else formatted = abs.toFixed(0);
+        return isNeg ? '-' + formatted : formatted;
     }
 
     function injectStyles() {
@@ -404,7 +430,7 @@ const ResultsScreen = (() => {
                 font-size: 28px; color: var(--green);
                 width: 60px; text-align: center;
             }
-            .result-info { flex: 1; }
+            .result-info { flex: 1; min-width: 0; }
             .result-driver {
                 font-family: 'Rajdhani'; font-weight: 700;
                 font-size: 16px;
@@ -471,9 +497,9 @@ const ResultsScreen = (() => {
 
     return { init, render, destroy };
 })();/* ============================================
-   VELOCITY — RESULTS SCREEN
-   Post-race results with podium animation,
-   stats, championship updates
+   VELOCITY — RESULTS SCREEN (DEGLITCHED)
+   Indestructible Post-Race Classification Engine
+   with standalone formatting and wrap-safe DOM parsing
    ============================================ */
 
 const ResultsScreen = (() => {
@@ -495,10 +521,10 @@ const ResultsScreen = (() => {
 
             if (!results || !Array.isArray(results) || results.length === 0 || !race) {
                 container.innerHTML = `
-                    <div style="text-align: center; padding: var(--space-3xl);">
-                        <h2 style="font-family: Orbitron; color: var(--yellow);">NO CLASSIFICATION RECOGNIZED</h2>
-                        <p style="color: var(--gray-400); font-family: Rajdhani; margin-bottom: 20px;">The Grand Prix results sheet is currently syncing or unavailable.</p>
-                        <button class="btn btn-glow" id="res-back">RETURN TO HOME</button>
+                    <div style="text-align: center; padding: 60px 20px;">
+                        <h2 style="font-family: Orbitron; color: #FFD700; font-size: 24px; letter-spacing: 3px;">NO CLASSIFICATION ON RECORD</h2>
+                        <p style="color: var(--gray-400); font-family: Rajdhani; font-size: 16px; margin-bottom: 24px;">The Grand Prix classification sheet is syncing or unavailable.</p>
+                        <button class="btn btn-glow" id="res-back" style="padding: 12px 28px; font-family: Orbitron; font-weight: 900; font-size: 12px; cursor: pointer;">RETURN TO HOME</button>
                     </div>
                 `;
                 container.querySelector('#res-back')?.addEventListener('click', () => typeof EventBus !== 'undefined' && EventBus.emit('nav:home'));
@@ -515,58 +541,59 @@ const ResultsScreen = (() => {
 
             container.innerHTML = `
                 <div class="results-container">
-                    <button class="home-btn" id="res-home-btn">⌂</button>
+                    <button class="home-btn" id="res-home-btn" title="Return to Home">⌂</button>
 
                     <div class="results-header">
                         <h1 class="results-title">RACE RESULTS</h1>
-                        <div class="results-subtitle">${escapeHTML(race.track?.flag || '🏁')} ${escapeHTML(race.track?.name || 'Grand Prix')}</div>
+                        <div class="results-subtitle">${escapeHTML(race.track?.flag || '🏁')} ${escapeHTML(race.track?.name || 'Grand Prix Match')}</div>
                     </div>
 
-                    <!-- PODIUM -->
+                    <!-- PODIUM DISPLAY -->
                     <div class="podium-display">
                         ${renderPodium(podium)}
                     </div>
 
                     ${playerWon ? `<div class="victory-banner">🏆 YOU WIN! 🏆</div>` : ''}
 
+                    <!-- CORPORATE SPONSORSHIP OUTCOME BANNER -->
                     ${spOutcome ? `
-                        <div class="sponsor-outcome-banner" style="margin: 20px auto; max-width: 800px; padding: 20px; background: linear-gradient(135deg, rgba(20,20,30,0.92), rgba(10,10,15,0.98)); border: 3px solid ${spOutcome.met ? '#00FF41' : 'var(--red)'}; border-radius: 16px; text-align: center; box-shadow: 0 0 30px ${spOutcome.met ? 'rgba(0,255,65,0.4)' : 'rgba(255,0,51,0.4)'};">
+                        <div class="sponsor-outcome-banner" style="margin: var(--space-xl) auto; max-width: 800px; padding: 20px; background: linear-gradient(135deg, rgba(20,20,30,0.92), rgba(10,10,15,0.98)); border: 3px solid ${spOutcome.met ? '#00FF41' : 'var(--red)'}; border-radius: 16px; text-align: center; box-shadow: 0 0 30px ${spOutcome.met ? 'rgba(0,255,65,0.4)' : 'rgba(255,0,51,0.4)'};">
                             <div style="font-family: Orbitron; font-weight: 900; font-size: 18px; color: ${spOutcome.met ? '#00FF41' : 'var(--red)'}; margin-bottom: 8px; letter-spacing: 2px;">
                                 ${spOutcome.met ? '🤝 DEFINITIVE SPONSOR PAYOUT SECURED!' : '⚠️ CORPORATE SPONSOR FINE FAX RECEIVED!'}
                             </div>
                             <div style="font-family: Rajdhani; font-size: 15px; font-weight: 700; color: var(--gray-200); line-height: 1.4;">
                                 ${spOutcome.met ? 
-                                  `Corporate Primary Sponsor <strong style="color: #FFFFFF; font-family: Orbitron;">${escapeHTML(spOutcome.name)}</strong> wires <strong style="color: #00FF41; font-family: Orbitron;">+$${formatMoney(spOutcome.amount)}</strong> directly to your Constructor operations for satisfying your mandatory target setup!` : 
+                                  `Corporate Primary Sponsor <strong style="color: #FFFFFF; font-family: Orbitron;">${escapeHTML(spOutcome.name)}</strong> wires <strong style="color: #00FF41; font-family: Orbitron;">+$${formatMoney(spOutcome.amount)}</strong> directly to your Constructor operations for satisfying your contractual match target!` : 
                                   `Corporate Billing for primary sponsor <strong style="color: #FFFFFF; font-family: Orbitron;">${escapeHTML(spOutcome.name)}</strong> sends a highly sarcastic Esport fax billing your Constructor team <strong style="color: var(--red); font-family: Orbitron;">-$${formatMoney(spOutcome.amount)}</strong> for breaching your mandatory finish agreement!`}
                             </div>
                         </div>
                     ` : ''}
 
-                    <!-- PLAYER SUMMARY -->
+                    <!-- PLAYER PERFORMANCE SUMMARY -->
                     <div class="player-summary">
                         <h2 class="summary-title">YOUR PERFORMANCE</h2>
                         <div class="player-results-grid">
                             ${playerResults.map(r => `
-                                <div class="player-result-card ${r.position === 1 ? 'winner' : ''} ${r.position <= 3 ? 'podium' : ''}">
-                                    <div class="result-pos">P${r.position || 0}</div>
+                                <div class="player-result-card ${r?.position === 1 ? 'winner' : ''} ${r?.position <= 3 ? 'podium' : ''}">
+                                    <div class="result-pos">P${r?.position || 0}</div>
                                     <div class="result-info">
                                         <div class="result-driver">${escapeHTML(r?.driver?.name || 'RACER')}</div>
                                         <div class="result-detail">
-                                            ${r.status === 'DNF' ? `<span style="color: var(--red)">DNF: ${escapeHTML(r.dnfReason || 'Retired')}</span>` :
-                                              `Best Lap: ${formatLapTimeLocal(r.bestLap)}`}
+                                            ${r?.status === 'DNF' ? `<span style="color: var(--red)">DNF: ${escapeHTML(r.dnfReason || 'Retired Technical Failure')}</span>` :
+                                              `Best Match Lap: ${formatLapTimeLocal(r?.bestLap)}`}
                                         </div>
                                     </div>
                                     <div class="result-points">
-                                        <div class="points-num">${r.points || 0}</div>
+                                        <div class="points-num">${r?.points || 0}</div>
                                         <div class="points-label">PTS</div>
-                                        ${r.fastestLapBonus > 0 ? '<div style="color: #AA33FF; font-size: 10px;">+1 FL</div>' : ''}
+                                        ${r?.fastestLapBonus > 0 ? '<div style="color: #AA33FF; font-size: 10px; font-family: Orbitron; font-weight: 900;">+1 FL</div>' : ''}
                                     </div>
                                 </div>
                             `).join('')}
                         </div>
                     </div>
 
-                    <!-- FULL RESULTS -->
+                    <!-- FULL CLASSIFICATION SHEETS -->
                     <div class="full-results">
                         <h2 class="summary-title">FULL CLASSIFICATION</h2>
                         <table class="results-table">
@@ -582,9 +609,9 @@ const ResultsScreen = (() => {
                             </thead>
                             <tbody>
                                 ${results.map(r => `
-                                    <tr class="${r?.team?.id === race.playerTeamId ? 'player-result' : ''} ${r.status === 'DNF' ? 'dnf' : ''}">
+                                    <tr class="${r?.team?.id === race.playerTeamId ? 'player-result' : ''} ${r?.status === 'DNF' ? 'dnf' : ''}">
                                         <td class="pos-cell">
-                                            <span class="pos-num ${r.position === 1 ? 'pos-1' : r.position === 2 ? 'pos-2' : r.position === 3 ? 'pos-3' : ''}">${r.position || 0}</span>
+                                            <span class="pos-num ${r?.position === 1 ? 'pos-1' : r?.position === 2 ? 'pos-2' : r?.position === 3 ? 'pos-3' : ''}">${r?.position || 0}</span>
                                         </td>
                                         <td>
                                             <span style="margin-right: 6px;">${escapeHTML(r?.driver?.flag || '')}</span>
@@ -592,32 +619,33 @@ const ResultsScreen = (() => {
                                         </td>
                                         <td>
                                             <span style="display: inline-block; width: 4px; height: 14px; background: ${r?.team?.color || '#FFF'}; margin-right: 6px; vertical-align: middle;"></span>
-                                            ${escapeHTML(r?.team?.shortName || r?.team?.name || 'TEAM')}
+                                            ${escapeHTML(r?.team?.shortName || r?.team?.name || 'CONSTRUCTOR')}
                                         </td>
                                         <td class="time-cell">
-                                            ${r.status === 'DNF' ? 'DNF' :
-                                              r.gap === null ? formatRaceTime(r.time) : formatGapLocal(r.gap)}
+                                            ${r?.status === 'DNF' ? '<span style="color: var(--red); font-weight: 700;">DNF</span>' :
+                                              r?.gap === null ? formatRaceTime(r?.time) : formatGapLocal(r?.gap)}
                                         </td>
-                                        <td class="time-cell">${r.bestLap ? formatLapTimeLocal(r.bestLap) : '—'}</td>
-                                        <td style="font-family: 'Orbitron'; font-weight: 700;">${r.points || 0}${r.fastestLapBonus > 0 ? '+1' : ''}</td>
+                                        <td class="time-cell">${r?.bestLap ? formatLapTimeLocal(r?.bestLap) : '—'}</td>
+                                        <td style="font-family: 'Orbitron'; font-weight: 700; color: ${r?.team?.id === race.playerTeamId ? '#00FF41' : 'var(--white)'};">${r?.points || 0}${r?.fastestLapBonus > 0 ? '+1' : ''}</td>
                                     </tr>
                                 `).join('')}
                             </tbody>
                         </table>
                     </div>
 
+                    <!-- STRATEGIC DECK REDIRECT ACTIONS -->
                     <div class="results-actions">
                         ${race.isScenario ? `
-                            <button class="btn btn-glow btn-large" id="res-scenario-action" style="background: rgba(255,215,0,0.15); border-color: #FFD700; color: #FFD700; font-weight: 900; font-family: Orbitron; padding: 16px 32px;">
-                                RETURN TO HALL OF GLORY →
+                            <button class="btn btn-glow btn-large" id="res-scenario-action" style="background: rgba(255,215,0,0.15); border-color: #FFD700; color: #FFD700; font-weight: 900; font-family: Orbitron; font-size: 14px; padding: 16px 36px; cursor: pointer;">
+                                📜 RETURN TO HALL OF GLORY →
                             </button>
                         ` : race.isCareerRace ? `
-                            <button class="btn btn-primary btn-large" id="res-continue">
+                            <button class="btn btn-primary btn-large" id="res-continue" style="font-family: Orbitron; font-weight: 900; font-size: 14px; padding: 16px 36px; cursor: pointer;">
                                 CONTINUE TO DASHBOARD →
                             </button>
                         ` : `
-                            <button class="btn btn-primary btn-large" id="res-home-action">
-                                RETURN HOME
+                            <button class="btn btn-primary btn-large" id="res-home-action" style="font-family: Orbitron; font-weight: 900; font-size: 14px; padding: 16px 36px; cursor: pointer;">
+                                RETURN PADDOCK HOME
                             </button>
                         `}
                     </div>
@@ -631,18 +659,92 @@ const ResultsScreen = (() => {
                 setTimeout(() => Transitions.confetti?.(4000), 500);
             }
         } catch (err) {
-            console.error('[ResultsScreen] Render error:', err);
+            console.error('[ResultsScreen] Indestructible sandbox intercepted error:', err);
             container.innerHTML = `
-                <div style="text-align: center; padding: var(--space-3xl);">
-                    <h2 style="font-family: Orbitron; color: var(--red);">CLASSIFICATION SHEET REFRESH FAILURE</h2>
-                    <p style="color: var(--gray-400); font-family: Rajdhani; margin-bottom: 20px;">An unhandled reference was intercepted while constructing the full classification sheets.</p>
-                    <button class="btn btn-glow" id="res-back-err">RETURN TO PADDOCK</button>
+                <div style="text-align: center; padding: 80px 20px; background: #0c0c10; border: 2px solid var(--red); border-radius: 20px; max-width: 600px; margin: 40px auto;">
+                    <h2 style="font-family: Orbitron; color: var(--red); font-size: 24px; letter-spacing: 3px; margin-bottom: 12px;">⚠️ CLASSIFICATION SUMMARY UPLINK BUSY</h2>
+                    <p style="color: var(--gray-300); font-family: Rajdhani; font-size: 16px; margin-bottom: 24px;">The Paddock classification server successfully intercepted your chequered complete but is actively synchronizing timing sheets.</p>
+                    <button class="btn btn-glow" id="res-back-err" style="padding: 14px 32px; font-family: Orbitron; font-weight: 900; font-size: 12px; cursor: pointer; border-color: var(--red); color: var(--red); background: rgba(255,0,51,0.15);">RETURN TO PADDOCK</button>
                 </div>
             `;
             container.querySelector('#res-back-err')?.addEventListener('click', () => typeof EventBus !== 'undefined' && EventBus.emit('nav:home'));
         }
     }
 
+    function renderPodium(podium) {
+        if (!podium || !Array.isArray(podium) || podium.length === 0) {
+            return '<div style="text-align: center; padding: var(--space-xl); color: var(--gray-500); font-family: Orbitron;">Podium summary incomplete</div>';
+        }
+
+        const p1 = podium[0] || { driver: { name: 'P1' }, team: { name: 'Team' }, position: 1 };
+        const p2 = podium[1] || { driver: { name: 'P2' }, team: { name: 'Team' }, position: 2 };
+        const p3 = podium[2] || { driver: { name: 'P3' }, team: { name: 'Team' }, position: 3 };
+
+        const order = [p2, p1, p3]; // 2nd, 1st, 3rd
+        const heights = ['second', 'first', 'third'];
+        const positions = ['2', '1', '3'];
+
+        return order.map((p, idx) => `
+            <div class="podium-block podium-${heights[idx]}">
+                <div class="podium-driver">
+                    <div class="podium-avatar">${escapeHTML(p?.driver?.flag || '🏎️')}</div>
+                    <div class="podium-name">${escapeHTML(p?.driver?.lastName || p?.driver?.name || 'RACER')}</div>
+                    <div class="podium-team" style="color: ${p?.team?.color || '#FFF'};">
+                        ${escapeHTML(p?.team?.shortName || p?.team?.name || 'CONSTRUCTOR')}
+                    </div>
+                </div>
+                <div class="podium-stand">
+                    <div class="podium-position">${positions[idx]}</div>
+                </div>
+            </div>
+        `).join('');
+    }
+
+    function attachListeners() {
+        if (typeof EventBus === 'undefined') return;
+
+        EventBus.on('screen:results:enter', () => {
+            isActive = true;
+            render();
+        });
+
+        EventBus.on('screen:changed', (data) => {
+            if (data.screen !== 'results') isActive = false;
+        });
+    }
+
+    function attachContentListeners() {
+        container.querySelector('#res-home-btn')?.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (typeof AudioManager !== 'undefined') AudioManager.uiClick?.();
+            EventBus.emit('nav:home');
+        });
+
+        container.querySelector('#res-continue')?.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (typeof AudioManager !== 'undefined') AudioManager.uiClick?.();
+            EventBus.emit('nav:go', { screen: 'dashboard', color: '#00FF41' });
+        });
+
+        container.querySelector('#res-home-action')?.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (typeof AudioManager !== 'undefined') AudioManager.uiClick?.();
+            EventBus.emit('nav:home');
+        });
+
+        container.querySelector('#res-scenario-action')?.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (typeof AudioManager !== 'undefined') AudioManager.uiClick?.();
+            EventBus.emit('nav:go', { screen: 'singleplayer', color: '#FFD700' });
+            setTimeout(() => {
+                if (typeof SinglePlayerScreen !== 'undefined' && typeof SinglePlayerScreen.showScenariosHub === 'function') {
+                    SinglePlayerScreen.showScenariosHub();
+                }
+            }, 700);
+        });
+    }
+
+    /* === STANDALONE STANDALONE local FORMATTING HELPERS === */
     function formatLapTimeLocal(seconds) {
         if (typeof formatLapTime === 'function') {
             try { return formatLapTime(seconds); } catch {}
@@ -667,74 +769,24 @@ const ResultsScreen = (() => {
         return `+${m}:${s.padStart(6, '0')}`;
     }
 
-    function renderPodium(podium) {
-        if (podium.length < 3) {
-            return '<div style="text-align: center; padding: var(--space-xl);">Race results incomplete</div>';
-        }
-
-        const order = [podium[1], podium[0], podium[2]]; // 2nd, 1st, 3rd
-        const heights = ['second', 'first', 'third'];
-        const positions = ['2', '1', '3'];
-
-        return order.map((p, idx) => `
-            <div class="podium-block podium-${heights[idx]}">
-                <div class="podium-driver">
-                    <div class="podium-avatar">${p.driver.flag || '🏎️'}</div>
-                    <div class="podium-name">${escapeHTML(p.driver.lastName || p.driver.name)}</div>
-                    <div class="podium-team" style="color: ${p.team.color}">
-                        ${escapeHTML(p.team.shortName || p.team.name)}
-                    </div>
-                </div>
-                <div class="podium-stand">
-                    <div class="podium-position">${positions[idx]}</div>
-                </div>
-            </div>
-        `).join('');
-    }
-
-    function attachListeners() {
-        if (typeof EventBus === 'undefined') return;
-
-        EventBus.on('screen:results:enter', () => {
-            isActive = true;
-            render();
-        });
-
-        EventBus.on('screen:changed', (data) => {
-            if (data.screen !== 'results') isActive = false;
-        });
-    }
-
-    function attachContentListeners() {
-        container.querySelector('#res-home-btn')?.addEventListener('click', () => {
-            EventBus.emit('nav:home');
-        });
-
-        container.querySelector('#res-continue')?.addEventListener('click', () => {
-            EventBus.emit('nav:go', { screen: 'dashboard', color: '#00FF41' });
-        });
-
-        container.querySelector('#res-home-action')?.addEventListener('click', () => {
-            EventBus.emit('nav:home');
-        });
-
-        container.querySelector('#res-scenario-action')?.addEventListener('click', () => {
-            EventBus.emit('nav:go', { screen: 'singleplayer', color: '#FFD700' });
-            setTimeout(() => {
-                if (typeof SinglePlayerScreen !== 'undefined' && typeof SinglePlayerScreen.showScenariosHub === 'function') {
-                    SinglePlayerScreen.showScenariosHub();
-                }
-            }, 700);
-        });
-    }
-
     function formatRaceTime(seconds) {
-        if (!seconds) return '—';
+        if (!seconds || isNaN(seconds)) return '—';
         const h = Math.floor(seconds / 3600);
         const m = Math.floor((seconds % 3600) / 60);
         const s = (seconds % 60).toFixed(3);
         if (h > 0) return `${h}:${m.toString().padStart(2,'0')}:${s.padStart(6,'0')}`;
         return `${m}:${s.padStart(6,'0')}`;
+    }
+
+    function formatMoney(amount) {
+        if (amount === undefined || amount === null || isNaN(amount)) return '0';
+        const isNeg = amount < 0;
+        const abs = Math.abs(amount);
+        let formatted = '';
+        if (abs >= 1000000) formatted = (abs / 1000000).toFixed(1) + 'M';
+        else if (abs >= 1000) formatted = (abs / 1000).toFixed(0) + 'K';
+        else formatted = abs.toFixed(0);
+        return isNeg ? '-' + formatted : formatted;
     }
 
     function injectStyles() {
@@ -876,7 +928,7 @@ const ResultsScreen = (() => {
                 font-size: 28px; color: var(--green);
                 width: 60px; text-align: center;
             }
-            .result-info { flex: 1; }
+            .result-info { flex: 1; min-width: 0; }
             .result-driver {
                 font-family: 'Rajdhani'; font-weight: 700;
                 font-size: 16px;
