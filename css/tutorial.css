@@ -1,0 +1,379 @@
+/* ============================================
+   VELOCITY — TUTORIAL STYLES
+   How to Play page with chapters and interactive demos
+   Yellow accent theme
+   ============================================ */
+
+/* --- TUTORIAL LAYOUT --- */
+.tutorial-container {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    background: var(--black);
+    position: relative;
+    overflow: hidden;
+}
+
+/* Animated caution stripes (subtle background) */
+.tutorial-container::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 200%;
+    height: 200%;
+    background: repeating-linear-gradient(
+        -45deg,
+        transparent,
+        transparent 40px,
+        rgba(255, 215, 0, 0.015) 40px,
+        rgba(255, 215, 0, 0.015) 80px
+    );
+    animation: stripe-scroll 30s linear infinite;
+    pointer-events: none;
+    z-index: 0;
+}
+
+@keyframes stripe-scroll {
+    0% { transform: translate(0, 0); }
+    100% { transform: translate(80px, 80px); }
+}
+
+.tutorial-container > * {
+    position: relative;
+    z-index: 1;
+}
+
+/* --- SIDEBAR (Chapters) --- */
+.tutorial-sidebar {
+    width: 280px;
+    min-width: 280px;
+    background: var(--surface-1);
+    border-right: 1px solid var(--border-subtle);
+    padding: var(--space-xl) 0;
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+}
+
+.tutorial-sidebar-title {
+    font-family: 'Orbitron', sans-serif;
+    font-weight: 700;
+    font-size: var(--text-sm);
+    text-transform: uppercase;
+    letter-spacing: 3px;
+    color: var(--yellow);
+    padding: 0 var(--space-lg);
+    margin-bottom: var(--space-lg);
+    text-shadow: 0 0 15px var(--yellow-glow);
+}
+
+.tutorial-chapter-list {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+}
+
+.tutorial-chapter-item {
+    display: flex;
+    align-items: center;
+    gap: var(--space-md);
+    padding: var(--space-md) var(--space-lg);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    border-left: 3px solid transparent;
+}
+
+.tutorial-chapter-item:hover {
+    background: var(--surface-2);
+    border-left-color: var(--yellow);
+}
+
+.tutorial-chapter-item.active {
+    background: rgba(255, 215, 0, 0.05);
+    border-left-color: var(--yellow);
+}
+
+.chapter-number {
+    width: 32px;
+    height: 32px;
+    border-radius: var(--radius-sm);
+    background: var(--gray-800);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'Orbitron', sans-serif;
+    font-weight: 700;
+    font-size: var(--text-xs);
+    color: var(--gray-400);
+    flex-shrink: 0;
+    transition: all var(--transition-fast);
+}
+
+.tutorial-chapter-item.active .chapter-number {
+    background: var(--yellow);
+    color: var(--black);
+}
+
+.tutorial-chapter-item.completed .chapter-number {
+    background: var(--yellow-dim);
+    color: var(--white);
+}
+
+.chapter-info {
+    flex: 1;
+}
+
+.chapter-title {
+    font-family: 'Rajdhani', sans-serif;
+    font-weight: 600;
+    font-size: var(--text-sm);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--gray-300);
+}
+
+.tutorial-chapter-item.active .chapter-title {
+    color: var(--yellow);
+}
+
+.chapter-status {
+    font-size: var(--text-xs);
+    color: var(--gray-600);
+}
+
+.chapter-status.done {
+    color: var(--yellow-dim);
+}
+
+/* --- MAIN CONTENT AREA --- */
+.tutorial-main {
+    flex: 1;
+    overflow-y: auto;
+    padding: var(--space-2xl);
+}
+
+.tutorial-content-header {
+    margin-bottom: var(--space-2xl);
+    padding-bottom: var(--space-lg);
+    border-bottom: 1px solid var(--border-subtle);
+}
+
+.tutorial-content-title {
+    font-family: 'Orbitron', sans-serif;
+    font-weight: 700;
+    font-size: var(--text-2xl);
+    text-transform: uppercase;
+    letter-spacing: 4px;
+    color: var(--white);
+    margin-bottom: var(--space-sm);
+    text-shadow: 0 0 20px var(--yellow-glow);
+}
+
+.tutorial-content-subtitle {
+    font-family: 'Rajdhani', sans-serif;
+    font-size: var(--text-base);
+    color: var(--gray-500);
+}
+
+/* --- TUTORIAL BODY --- */
+.tutorial-body {
+    line-height: 1.8;
+    color: var(--gray-300);
+    font-family: 'Inter', sans-serif;
+    font-size: var(--text-base);
+}
+
+.tutorial-body h3 {
+    font-family: 'Orbitron', sans-serif;
+    font-size: var(--text-lg);
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    color: var(--white);
+    margin: var(--space-xl) 0 var(--space-md);
+}
+
+.tutorial-body p {
+    margin-bottom: var(--space-md);
+}
+
+.tutorial-body ul {
+    list-style: none;
+    padding: 0;
+    margin-bottom: var(--space-lg);
+}
+
+.tutorial-body li {
+    position: relative;
+    padding-left: var(--space-xl);
+    margin-bottom: var(--space-sm);
+}
+
+.tutorial-body li::before {
+    content: '✓';
+    position: absolute;
+    left: 0;
+    color: var(--yellow);
+    font-weight: 700;
+}
+
+/* --- INTERACTIVE DEMO AREAS --- */
+.tutorial-demo {
+    background: var(--surface-1);
+    border: 1px solid rgba(255, 215, 0, 0.15);
+    border-radius: var(--radius-lg);
+    padding: var(--space-xl);
+    margin: var(--space-xl) 0;
+}
+
+.tutorial-demo-header {
+    display: flex;
+    align-items: center;
+    gap: var(--space-md);
+    margin-bottom: var(--space-lg);
+}
+
+.demo-badge {
+    padding: 4px 12px;
+    border-radius: 4px;
+    background: rgba(255, 215, 0, 0.15);
+    color: var(--yellow);
+    font-family: 'Orbitron', sans-serif;
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+}
+
+.demo-title {
+    font-family: 'Rajdhani', sans-serif;
+    font-weight: 600;
+    font-size: var(--text-base);
+    color: var(--gray-300);
+}
+
+.tutorial-demo-content {
+    min-height: 200px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* --- TIRE COMPOUND DEMO --- */
+.compound-demo {
+    display: flex;
+    gap: var(--space-xl);
+    justify-content: center;
+    flex-wrap: wrap;
+}
+
+.compound-demo-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-md);
+    padding: var(--space-lg);
+    background: var(--surface-2);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-lg);
+    cursor: pointer;
+    transition: all var(--transition-base);
+    min-width: 100px;
+}
+
+.compound-demo-item:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);
+    border-color: var(--yellow);
+}
+
+.compound-dot {
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    border: 3px solid rgba(255, 255, 255, 0.2);
+}
+
+.compound-label {
+    font-family: 'Rajdhani', sans-serif;
+    font-weight: 600;
+    font-size: var(--text-sm);
+    text-transform: uppercase;
+}
+
+.compound-stats {
+    font-size: var(--text-xs);
+    color: var(--gray-500);
+    text-align: center;
+}
+
+/* --- PROGRESS / NAVIGATION --- */
+.tutorial-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-top: var(--space-2xl);
+    padding-top: var(--space-lg);
+    border-top: 1px solid var(--border-subtle);
+}
+
+.tutorial-progress {
+    display: flex;
+    gap: var(--space-sm);
+}
+
+.tutorial-progress-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--gray-800);
+    transition: all var(--transition-fast);
+}
+
+.tutorial-progress-dot.active {
+    background: var(--yellow);
+    box-shadow: 0 0 8px var(--yellow-glow);
+}
+
+.tutorial-progress-dot.completed {
+    background: var(--yellow-dim);
+}
+
+.tutorial-nav-buttons {
+    display: flex;
+    gap: var(--space-md);
+}
+
+/* --- MARK AS READ --- */
+.mark-read {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    font-family: 'Rajdhani', sans-serif;
+    font-size: var(--text-sm);
+    color: var(--gray-400);
+    cursor: pointer;
+}
+
+.mark-read input[type="checkbox"] {
+    accent-color: var(--yellow);
+    width: 18px;
+    height: 18px;
+}
+
+/* --- READY BUTTON --- */
+.btn-ready-to-race {
+    margin-top: var(--space-2xl);
+    background: linear-gradient(135deg, rgba(255, 215, 0, 0.2), rgba(255, 215, 0, 0.05));
+    border-color: var(--yellow);
+    color: var(--yellow);
+    font-size: var(--text-xl);
+    padding: var(--space-lg) var(--space-3xl);
+    letter-spacing: 4px;
+    animation: pulse-yellow 2s ease-in-out infinite;
+}
+
+@keyframes pulse-yellow {
+    0%, 100% { box-shadow: 0 0 10px var(--yellow-glow); }
+    50% { box-shadow: 0 0 30px var(--yellow-glow), 0 0 60px var(--yellow-glow); }
+}

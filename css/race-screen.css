@@ -1,0 +1,962 @@
+/* ============================================
+   VELOCITY — LIVE RACE SCREEN
+   60/40 split layout
+   ============================================ */
+
+/* --- TOP BAR (5%) --- */
+#race-top-bar {
+    height: 5vh;
+    width: 100%;
+    background: linear-gradient(180deg, rgba(20, 20, 20, 0.95), rgba(10, 10, 10, 0.9));
+    border-bottom: 1px solid var(--border-subtle);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 var(--space-lg);
+    z-index: 50;
+    backdrop-filter: blur(10px);
+}
+
+.race-info-left {
+    display: flex;
+    align-items: center;
+    gap: var(--space-lg);
+}
+
+.race-round {
+    font-family: 'Rajdhani', sans-serif;
+    font-weight: 600;
+    font-size: var(--text-sm);
+    color: var(--gray-400);
+    text-transform: uppercase;
+    letter-spacing: 2px;
+}
+
+.race-name {
+    font-family: 'Orbitron', sans-serif;
+    font-weight: 700;
+    font-size: var(--text-lg);
+    text-transform: uppercase;
+    letter-spacing: 2px;
+}
+
+.race-info-center {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xl);
+}
+
+.lap-counter {
+    font-family: 'Orbitron', sans-serif;
+    font-weight: 700;
+    font-size: var(--text-2xl);
+    letter-spacing: 2px;
+}
+
+.lap-counter .current-lap {
+    color: var(--white);
+}
+
+.lap-counter .total-laps {
+    color: var(--gray-600);
+}
+
+.race-info-right {
+    display: flex;
+    align-items: center;
+    gap: var(--space-lg);
+}
+
+.weather-indicator {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    font-family: 'Rajdhani', sans-serif;
+    font-size: var(--text-base);
+    color: var(--gray-300);
+}
+
+.weather-icon {
+    font-size: 22px;
+}
+
+.race-status {
+    font-family: 'Orbitron', sans-serif;
+    font-weight: 700;
+    font-size: var(--text-sm);
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    padding: var(--space-xs) var(--space-md);
+    border-radius: var(--radius-sm);
+}
+
+.race-status.green { background: rgba(0, 255, 65, 0.15); color: var(--green); }
+.race-status.yellow { background: rgba(255, 215, 0, 0.15); color: var(--yellow); animation: scFlash 0.5s ease infinite alternate; }
+.race-status.red { background: rgba(255, 0, 51, 0.15); color: var(--red); }
+.race-status.sc { background: rgba(255, 215, 0, 0.2); color: var(--yellow); animation: scFlash 0.5s ease infinite alternate; }
+
+/* --- MAIN CONTENT (85%) --- */
+#race-main {
+    height: 85vh;
+    width: 100%;
+    display: flex;
+    overflow: hidden;
+}
+
+/* --- LEFT: TIMING PANEL (60%) --- */
+#race-timing-panel {
+    width: 60%;
+    height: 100%;
+    overflow-y: auto;
+    overflow-x: hidden;
+    border-right: 1px solid var(--border-subtle);
+    background: rgba(5, 5, 5, 0.95);
+}
+
+/* --- RIGHT COLUMN (40%) --- */
+#race-right-panel {
+    width: 40%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    background: var(--black);
+    overflow: hidden;
+}
+
+/* TOP 63%: TRACK WINDOW */
+#race-track-panel {
+    flex: 0 0 63%;
+    max-height: 63%;
+    width: 100%;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    border-bottom: 2px solid var(--border-medium);
+    background: var(--black);
+    overflow: hidden;
+}
+
+/* BOTTOM 37%: Esport TACTICAL COMMAND DECK */
+#race-tactical-deck {
+    flex: 0 0 37%;
+    max-height: 37%;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    background: #0a0a0c;
+    overflow: hidden;
+}
+
+.deck-nav-header {
+    display: flex;
+    background: linear-gradient(180deg, #18181c, #0f0f13);
+    border-bottom: 2px solid var(--border-medium);
+    padding: 0 12px;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
+.deck-tab-btn {
+    padding: 10px 16px;
+    background: none;
+    border: none;
+    border-bottom: 3px solid transparent;
+    color: var(--gray-400);
+    font-family: 'Orbitron', sans-serif;
+    font-size: 11px;
+    font-weight: 900;
+    letter-spacing: 2px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+}
+
+.deck-tab-btn:hover {
+    color: var(--white);
+    background: rgba(255,255,255,0.02);
+}
+
+.deck-tab-btn.active {
+    color: #00FF41;
+    border-bottom-color: #00FF41;
+    text-shadow: 0 0 10px rgba(0,255,65,0.4);
+}
+
+.deck-content-wrapper {
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+}
+
+.deck-tab-pane {
+    position: absolute;
+    top: 0; left: 0; width: 100%; height: 100%;
+    display: none;
+    flex-direction: column;
+    overflow-y: auto;
+    padding: 14px 20px;
+}
+
+.deck-tab-pane.active {
+    display: flex;
+}
+
+/* Tactical Deck Interiors */
+.tactical-weather-interior {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    height: 100%;
+}
+
+.tactical-vsc-interior {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    height: 100%;
+}
+
+.track-header {
+    padding: var(--space-md) var(--space-lg);
+    border-bottom: 1px solid var(--border-subtle);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.track-title {
+    font-family: 'Rajdhani', sans-serif;
+    font-weight: 600;
+    font-size: var(--text-sm);
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    color: var(--gray-400);
+}
+
+.track-length {
+    font-family: 'Rajdhani', sans-serif;
+    font-size: var(--text-sm);
+    color: var(--gray-500);
+}
+
+#race-track-canvas {
+    flex: 1;
+    width: 100%;
+}
+
+/* Track camera modes */
+.camera-controls {
+    position: absolute;
+    bottom: var(--space-md);
+    right: var(--space-md);
+    display: flex;
+    gap: var(--space-xs);
+    z-index: 10;
+}
+
+.camera-btn {
+    width: 32px;
+    height: 32px;
+    border-radius: var(--radius-sm);
+    background: var(--surface-2);
+    border: 1px solid var(--border-subtle);
+    color: var(--gray-400);
+    font-size: 14px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all var(--transition-fast);
+}
+
+.camera-btn:hover,
+.camera-btn.active {
+    background: var(--surface-3);
+    border-color: var(--green);
+    color: var(--green);
+}
+
+/* --- BOTTOM BAR (10%) --- */
+#race-bottom-bar {
+    height: 10vh;
+    width: 100%;
+    background: linear-gradient(0deg, rgba(20, 20, 20, 0.95), rgba(10, 10, 10, 0.9));
+    border-top: 1px solid var(--border-subtle);
+    display: flex;
+    align-items: center;
+    padding: 0;
+    z-index: 50;
+    overflow: hidden;
+}
+
+/* ERS / Boost Telemetry Panel */
+.boost-telemetry-panel {
+    min-width: 240px;
+    max-width: 280px;
+    height: 90px;
+    padding: var(--space-sm);
+    background: var(--surface-1);
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border-subtle);
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    overflow-y: auto;
+}
+
+.telemetry-header {
+    font-family: 'Orbitron', sans-serif;
+    font-weight: 700;
+    font-size: var(--text-xs);
+    color: var(--yellow);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.telemetry-car-item {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+    padding-bottom: 4px;
+}
+
+.telemetry-car-name {
+    font-family: 'Rajdhani', sans-serif;
+    font-weight: 700;
+    font-size: 11px;
+    color: var(--white);
+    display: flex;
+    justify-content: space-between;
+}
+
+.telemetry-meters {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+}
+
+.meter-box {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.meter-label {
+    font-family: 'Rajdhani', sans-serif;
+    font-size: 9px;
+    color: var(--gray-400);
+    display: flex;
+    justify-content: space-between;
+}
+
+.meter-bar-bg {
+    width: 100%;
+    height: 4px;
+    background: var(--gray-800);
+    border-radius: 2px;
+    overflow: hidden;
+}
+
+.meter-bar-fill {
+    height: 100%;
+    transition: width 0.3s ease, background-color 0.3s ease;
+}
+
+/* Playback Controls (left) */
+.playback-controls {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    min-width: 200px;
+}
+
+.playback-btn {
+    width: 40px;
+    height: 40px;
+    border-radius: var(--radius-md);
+    background: var(--surface-2);
+    border: 1px solid var(--border-subtle);
+    color: var(--white);
+    font-size: 18px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all var(--transition-fast);
+}
+
+.playback-btn:hover {
+    background: var(--surface-3);
+    border-color: var(--green);
+}
+
+.playback-btn.active {
+    background: rgba(0, 255, 65, 0.15);
+    border-color: var(--green);
+    color: var(--green);
+}
+
+.speed-indicator {
+    font-family: 'Orbitron', sans-serif;
+    font-weight: 700;
+    font-size: var(--text-lg);
+    color: var(--green);
+    min-width: 50px;
+    text-align: center;
+}
+
+/* Player Strategy (center) */
+.strategy-controls {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: var(--space-xl);
+    justify-content: center;
+}
+
+.driver-control {
+    display: flex;
+    align-items: center;
+    gap: var(--space-md);
+    padding: var(--space-sm) var(--space-lg);
+    background: var(--surface-1);
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border-subtle);
+}
+
+.driver-control-name {
+    font-family: 'Rajdhani', sans-serif;
+    font-weight: 600;
+    font-size: var(--text-sm);
+    text-transform: uppercase;
+    min-width: 120px;
+}
+
+.driver-control-pos {
+    font-family: 'Orbitron', sans-serif;
+    font-weight: 700;
+    font-size: var(--text-lg);
+    color: var(--green);
+}
+
+.mode-selector {
+    display: flex;
+    gap: 2px;
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+}
+
+.mode-btn {
+    padding: var(--space-xs) var(--space-md);
+    font-family: 'Rajdhani', sans-serif;
+    font-weight: 600;
+    font-size: var(--text-xs);
+    text-transform: uppercase;
+    background: var(--surface-2);
+    border: none;
+    color: var(--gray-400);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+}
+
+.mode-btn:hover {
+    background: var(--surface-3);
+}
+
+.mode-btn.active-push {
+    background: rgba(255, 0, 51, 0.2);
+    color: var(--red);
+}
+
+.mode-btn.active-standard {
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--white);
+}
+
+.mode-btn.active-conserve {
+    background: rgba(0, 255, 65, 0.15);
+    color: var(--green);
+}
+
+.pit-btn {
+    padding: var(--space-sm) var(--space-lg);
+    background: rgba(255, 0, 51, 0.15);
+    border: 1px solid var(--red);
+    border-radius: var(--radius-md);
+    color: var(--red);
+    font-family: 'Orbitron', sans-serif;
+    font-weight: 700;
+    font-size: var(--text-xs);
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+}
+
+.pit-btn:hover {
+    background: rgba(255, 0, 51, 0.3);
+    box-shadow: 0 0 20px var(--red-glow);
+}
+
+.pit-btn.pitting {
+    background: var(--red);
+    color: var(--white);
+    animation: pulse-glow 1s infinite;
+}
+
+.boost-btn {
+    padding: var(--space-sm) var(--space-md);
+    background: var(--surface-2);
+    border: 1px solid var(--yellow);
+    border-radius: var(--radius-md);
+    color: var(--yellow);
+    font-family: 'Rajdhani', sans-serif;
+    font-weight: 600;
+    font-size: var(--text-xs);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+}
+
+.boost-btn:hover {
+    background: rgba(255, 215, 0, 0.15);
+}
+
+.boost-btn:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+}
+
+/* Team Radio (right) */
+.team-radio {
+    min-width: 250px;
+    max-width: 300px;
+    height: 80px;
+    overflow-y: auto;
+    padding: var(--space-sm);
+    background: var(--surface-1);
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border-subtle);
+}
+
+.radio-header {
+    font-family: 'Orbitron', sans-serif;
+    font-size: var(--text-xs);
+    color: var(--gray-500);
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    margin-bottom: var(--space-xs);
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs);
+}
+
+.radio-header::before {
+    content: '📻';
+    font-size: 12px;
+}
+
+.radio-message {
+    font-family: 'Rajdhani', sans-serif;
+    font-size: var(--text-sm);
+    padding: 2px 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+    animation: slideInRight2 0.3s ease;
+}
+
+.radio-message.info { color: var(--gray-300); }
+.radio-message.warning { color: var(--yellow); }
+.radio-message.critical { color: var(--red); }
+.radio-message.positive { color: var(--green); }
+
+/* --- RACE EVENT OVERLAY --- */
+.race-event-overlay {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 100;
+    text-align: center;
+    pointer-events: none;
+}
+
+.race-event-text {
+    font-family: 'Orbitron', sans-serif;
+    font-weight: 900;
+    font-size: var(--text-4xl);
+    text-transform: uppercase;
+    letter-spacing: 4px;
+    animation: eventPopIn 2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes eventPopIn {
+    0% { transform: scale(0.5); opacity: 0; }
+    20% { transform: scale(1.1); opacity: 1; }
+    80% { transform: scale(1); opacity: 1; }
+    100% { transform: scale(1); opacity: 0; }
+}
+
+/* --- BOOST REGEN BAR --- */
+.boost-wrapper {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.boost-regen-bar {
+    width: 100%;
+    height: 3px;
+    background: var(--gray-800);
+    border-radius: 2px;
+    overflow: hidden;
+}
+
+.boost-regen-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--yellow-dim), var(--yellow));
+    transition: width 0.5s ease;
+    border-radius: 2px;
+}
+
+.boost-risk {
+    font-size: 9px;
+    color: var(--red);
+    margin-left: 4px;
+    animation: pulse-glow 1s ease-in-out infinite;
+}
+
+.boost-btn {
+    position: relative;
+    overflow: visible;
+}
+
+.driver-pit-count {
+    font-family: 'Rajdhani', sans-serif;
+    font-size: 10px;
+    color: var(--gray-500);
+    letter-spacing: 1px;
+    margin-top: 2px;
+}
+
+.pit-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    background: var(--gray-800) !important;
+    color: var(--gray-600) !important;
+    border-color: var(--gray-700) !important;
+}
+
+.mode-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+/* --- LIVE METEOROLOGY RADAR HUD (Proposal 4) --- */
+.radar-hud-panel {
+    position: absolute;
+    top: 48px;
+    right: 16px;
+    z-index: 100;
+    transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+    font-family: 'Rajdhani', sans-serif;
+}
+
+.radar-hud-panel.minimized .radar-interior-content {
+    display: none;
+}
+
+.radar-hud-panel:not(.minimized) .radar-toggle-btn {
+    display: none;
+}
+
+.radar-toggle-btn {
+    padding: 8px 16px;
+    background: linear-gradient(135deg, rgba(0, 128, 255, 0.25), rgba(0, 255, 65, 0.2));
+    border: 2px solid #0080FF;
+    border-radius: 20px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: #FFFFFF;
+    font-family: 'Orbitron', sans-serif;
+    font-size: 11px;
+    font-weight: 900;
+    letter-spacing: 2px;
+    box-shadow: 0 0 15px rgba(0, 128, 255, 0.5);
+    transition: all 0.3s ease;
+}
+
+.radar-toggle-btn:hover {
+    background: #0080FF;
+    border-color: #00FF41; box-shadow: 0 0 25px #00FF41;
+    transform: scale(1.05);
+}
+
+.radar-interior-content {
+    width: 440px;
+    background: linear-gradient(135deg, rgba(15,15,22,0.85), rgba(5,5,10,0.95));
+    border: 2px solid #0080FF;
+    border-radius: 16px;
+    padding: 20px;
+    box-shadow: 0 12px 40px rgba(0,0,0,0.95), inset 0 0 25px rgba(0,128,255,0.2);
+    backdrop-filter: blur(15px);
+}
+
+.radar-header-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 2px solid rgba(0, 128, 255, 0.4);
+    padding-bottom: 10px;
+    margin-bottom: 16px;
+}
+
+.radar-header-bar .r-title {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 14px; font-weight: 900; color: #FFFFFF; letter-spacing: 3px;
+    display: flex; align-items: center; gap: 8px;
+}
+
+.radar-header-bar .r-close {
+    font-size: 24px; font-weight: 900; color: #0080FF; cursor: pointer; transition: all 0.2s ease;
+    line-height: 1;
+}
+.radar-header-bar .r-close:hover { color: #FF0033; transform: scale(1.2); }
+
+.radar-split-flex {
+    display: flex;
+    gap: 20px;
+    align-items: center;
+}
+
+@media (max-width: 850px) { .radar-split-flex { flex-direction: column; } }
+
+/* Spinning Radar sweep */
+.radar-screen-dock {
+    width: 140px;
+    height: 140px;
+    border-radius: 50%;
+    background: radial-gradient(circle at center, #051329, #020610);
+    border: 3px solid #0080FF;
+    box-shadow: 0 0 25px rgba(0, 128, 255, 0.4), inset 0 0 20px rgba(0,255,65,0.2);
+    position: relative;
+    overflow: hidden;
+    flex-shrink: 0;
+}
+
+.radar-grid-lines {
+    position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+    background: 
+        repeating-radial-gradient(circle at center, transparent, transparent 18px, rgba(0, 128, 255, 0.2) 18px, rgba(0, 128, 255, 0.2) 19px),
+        linear-gradient(0deg, transparent 49%, rgba(0, 128, 255, 0.3) 49%, rgba(0, 128, 255, 0.3) 51%, transparent 51%),
+        linear-gradient(90deg, transparent 49%, rgba(0, 128, 255, 0.3) 49%, rgba(0, 128, 255, 0.3) 51%, transparent 51%);
+}
+
+.radar-sweep-blade {
+    position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+    border-radius: 50%;
+    background: conic-gradient(from 0deg at 50% 50%, rgba(0, 255, 65, 0.5) 0deg, transparent 60deg, transparent 360deg);
+    animation: radar-sweep 2.5s infinite linear;
+}
+
+@keyframes radar-sweep { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+.sky-cloud-blip {
+    position: absolute;
+    width: 12px; height: 12px;
+    border-radius: 50%;
+    background: #FF0033;
+    box-shadow: 0 0 10px #FF0033;
+    animation: blip-pulse 1s infinite alternate;
+    transition: all 0.5s ease;
+}
+
+@keyframes blip-pulse { from { transform: scale(0.8); opacity: 0.6; } to { transform: scale(1.3); opacity: 1.0; } }
+
+.radar-data-matrix {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    min-width: 0;
+}
+
+.radar-data-row {
+    display: flex; justify-content: space-between; align-items: center;
+    font-size: 13px; font-weight: 700; color: var(--gray-300); letter-spacing: 1px;
+}
+
+.radar-data-row .water-num {
+    font-family: 'Orbitron', sans-serif; font-size: 16px; font-weight: 900; color: #00FF41; text-shadow: 0 0 10px #00FF41;
+}
+
+.crossover-deltas-box {
+    display: flex; flex-direction: column; gap: 4px;
+    background: rgba(0,0,0,0.6); padding: 8px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.1);
+}
+
+.c-delta-item {
+    display: flex; justify-content: space-between; font-size: 11px; font-weight: 700; color: var(--gray-500);
+    padding: 4px 8px; border-radius: 4px; transition: all 0.3s ease;
+}
+
+.c-delta-item.active {
+    color: #FFFFFF; font-weight: 900;
+}
+.c-delta-item.active.slick { border-left: 3px solid #FF0033; background: rgba(255,0,51,0.2); text-shadow: 0 0 8px #FF0033; }
+.c-delta-item.active.inter { border-left: 3px solid #00FF41; background: rgba(0,255,65,0.2); text-shadow: 0 0 8px #00FF41; }
+.c-delta-item.active.wet { border-left: 3px solid #0080FF; background: rgba(0,128,255,0.2); text-shadow: 0 0 8px #0080FF; }
+
+.micro-timer-box {
+    background: rgba(255,215,0,0.1); border: 1px solid #FFD700; padding: 10px; border-radius: 8px;
+    display: flex; flex-direction: column; gap: 4px;
+    box-shadow: 0 0 15px rgba(255,215,0,0.2);
+}
+
+.micro-timer-box .timer-head { font-family: 'Orbitron', sans-serif; font-size: 10px; font-weight: 900; color: #FFD700; letter-spacing: 1px; }
+.micro-timer-box .timer-val { font-size: 13px; font-weight: 800; color: #FFFFFF; }
+.micro-timer-box .apex-val { font-family: 'Orbitron', monospace; font-size: 11px; font-weight: 700; color: #00FF41; }
+
+.radar-quick-box {
+    margin-top: 4px;
+}
+
+/* --- Virtual SAFETY CAR (VSC) PACING MINIGAME HUD (Proposal 5) --- */
+.vsc-minigame-panel {
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    width: 580px;
+    z-index: 1000;
+    transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+    font-family: 'Rajdhani', sans-serif;
+}
+
+@media (max-width: 700px) { .vsc-minigame-panel { width: 95%; } }
+
+.vsc-minigame-panel.minimized .vsc-interior-matrix { display: none; }
+.vsc-minigame-panel:not(.minimized) .vsc-toggle-btn { display: none; }
+
+.vsc-toggle-btn {
+    position: absolute;
+    top: -240px; left: -220px;
+    padding: 8px 16px;
+    background: linear-gradient(135deg, rgba(255, 215, 0, 0.25), rgba(255, 0, 51, 0.2));
+    border: 2px solid #FFD700;
+    border-radius: 20px;
+    cursor: pointer;
+    display: flex; align-items: center; gap: 8px;
+    color: #FFFFFF; font-family: 'Orbitron', sans-serif; font-size: 11px; font-weight: 900;
+    letter-spacing: 2px;
+    box-shadow: 0 0 20px rgba(255, 215, 0, 0.5);
+    transition: all 0.3s ease;
+}
+.vsc-toggle-btn:hover {
+    background: #FFD700; color: #000000; border-color: #FFFFFF;
+    box-shadow: 0 0 30px #FFD700; transform: scale(1.05);
+}
+
+.vsc-interior-matrix {
+    background: linear-gradient(135deg, rgba(20,20,30,0.95), rgba(8,8,14,0.98));
+    border: 3px solid #FFD700;
+    border-radius: var(--radius-xl);
+    padding: var(--space-2xl);
+    box-shadow: 0 15px 50px rgba(0,0,0,0.95), 0 0 40px rgba(255,215,0,0.4), inset 0 0 30px rgba(255,215,0,0.15);
+    backdrop-filter: blur(25px);
+    display: flex; flex-direction: column; gap: var(--space-lg);
+}
+
+.vsc-header-bar {
+    display: flex; justify-content: space-between; align-items: center;
+    border-bottom: 2px solid rgba(255, 215, 0, 0.4);
+    padding-bottom: var(--space-sm);
+}
+
+.vsc-header-bar .v-title {
+    font-family: 'Orbitron', sans-serif; font-size: 16px; font-weight: 900; color: #FFD700; letter-spacing: 3px;
+    display: flex; align-items: center; gap: 10px; text-shadow: 0 0 15px rgba(255,215,0,0.5);
+}
+
+.vsc-header-bar .v-close {
+    font-size: 26px; font-weight: 900; color: #FFD700; cursor: pointer; transition: all 0.2s ease; line-height: 1;
+}
+.vsc-header-bar .v-close:hover { color: #FF0033; transform: scale(1.2); }
+
+.vsc-tagline {
+    font-size: 14px; font-weight: 600; color: var(--gray-300); line-height: 1.5;
+}
+
+.vsc-timer-banner {
+    display: flex; justify-content: space-between; align-items: center;
+    background: rgba(255,215,0,0.15); border: 1px solid #FFD700; padding: var(--space-md) var(--space-lg);
+    border-radius: var(--radius-lg); box-shadow: 0 0 20px rgba(255,215,0,0.25);
+}
+.vsc-timer-banner span { font-family: 'Orbitron', sans-serif; font-size: 12px; font-weight: 900; color: #FFD700; letter-spacing: 2px; }
+.vsc-timer-banner .timer-digits { font-size: 24px; color: #FFFFFF; text-shadow: 0 0 15px #FFFFFF; }
+
+/* Graphical Arena Arena */
+.vsc-arena-box {
+    height: 100px;
+    background: radial-gradient(circle at center, #101018, #050508);
+    border: 2px solid var(--border-medium);
+    border-radius: var(--radius-lg);
+    position: relative; overflow: hidden;
+    box-shadow: inset 0 0 30px rgba(0,0,0,0.9);
+}
+
+.arena-background-grid {
+    position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+    background: 
+        linear-gradient(90deg, transparent 49.5%, rgba(255,215,0,0.15) 49.5%, rgba(255,215,0,0.15) 50.5%, transparent 50.5%),
+        repeating-linear-gradient(90deg, rgba(255,255,255,0.02), rgba(255,255,255,0.02) 20px, transparent 20px, transparent 40px);
+}
+
+.fia-target-line {
+    position: absolute; top: 0; left: 50%; width: 4px; height: 100%;
+    background: #FFD700; box-shadow: 0 0 20px #FFD700, 0 0 30px #FFD700;
+    transform: translateX(-50%); transition: left 0.1s ease;
+    display: flex; flex-direction: column; justify-content: flex-end; align-items: center; padding-bottom: 4px;
+}
+.fia-target-line .t-badge { font-family: Orbitron; font-size: 8px; font-weight: 900; color: #000; background: #FFD700; padding: 2px 6px; border-radius: 4px; white-space: nowrap; }
+
+.player-pace-bar {
+    position: absolute; top: 0; left: 50%; width: 6px; height: 100%;
+    background: #00FF41; box-shadow: 0 0 20px #00FF41, 0 0 30px #00FF41;
+    transform: translateX(-50%); transition: left 0.05s ease;
+    display: flex; flex-direction: column; justify-content: flex-start; align-items: center; padding-top: 4px;
+}
+.player-pace-bar .p-badge { font-family: Orbitron; font-size: 8px; font-weight: 900; color: #000; background: #00FF41; padding: 2px 6px; border-radius: 4px; white-space: nowrap; }
+
+.vsc-controller-box {
+    display: flex; flex-direction: column; gap: var(--space-sm);
+    background: rgba(0,0,0,0.6); padding: var(--space-md); border-radius: var(--radius-lg); border: 1px solid rgba(255,255,255,0.1);
+}
+.vsc-controller-box .c-label { font-family: Orbitron; font-size: 11px; font-weight: 900; color: var(--gray-400); letter-spacing: 2px; }
+
+.vsc-range-slider {
+    -webkit-appearance: none; width: 100%; height: 12px; background: #1a1a24; border-radius: 6px; outline: none;
+    border: 1px solid rgba(255,255,255,0.2); box-shadow: inset 0 0 10px rgba(0,0,0,0.8);
+}
+.vsc-range-slider::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none; width: 28px; height: 28px; border-radius: 50%;
+    background: radial-gradient(circle at center, #00FF41, #0080FF); cursor: pointer;
+    border: 3px solid #FFFFFF; box-shadow: 0 0 20px #00FF41; transition: transform 0.1s ease;
+}
+.vsc-range-slider::-webkit-slider-thumb:hover { transform: scale(1.2); }
+
+.vsc-charge-box {
+    display: flex; flex-direction: column; gap: 6px;
+}
+.vsc-charge-box .charge-label-flex { display: flex; justify-content: space-between; font-family: Orbitron; font-size: 12px; font-weight: 900; color: var(--gray-400); letter-spacing: 2px; }
+.vsc-charge-box .charge-val { color: #00FF41; font-size: 16px; }
+
+.vsc-charge-track {
+    height: 14px; background: rgba(0,0,0,0.8); border: 2px solid rgba(255,255,255,0.2); border-radius: 7px; overflow: hidden; padding: 2px;
+}
+.vsc-charge-fill {
+    height: 100%; background: linear-gradient(90deg, #0080FF, #00FF41); border-radius: 3px; box-shadow: 0 0 20px #00FF41; transition: width 0.1s ease;
+}

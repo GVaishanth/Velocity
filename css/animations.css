@@ -1,0 +1,337 @@
+/* ============================================
+   VELOCITY — ANIMATIONS
+   Transitions, effects, keyframes
+   ============================================ */
+
+/* --- SCREEN TRANSITIONS --- */
+.screen-enter {
+    animation: screenFadeIn 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.screen-exit {
+    animation: screenFadeOut 0.4s ease forwards;
+}
+
+@keyframes screenFadeIn {
+    from {
+        opacity: 0;
+        transform: scale(1.05);
+        filter: blur(10px);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1);
+        filter: blur(0);
+    }
+}
+
+@keyframes screenFadeOut {
+    from {
+        opacity: 1;
+        transform: scale(1);
+    }
+    to {
+        opacity: 0;
+        transform: scale(0.95);
+        filter: blur(5px);
+    }
+}
+
+/* --- DIVE INTO TIRE TRANSITION --- */
+.dive-in {
+    animation: diveIn 1.2s cubic-bezier(0.7, 0, 0.3, 1) forwards;
+}
+
+@keyframes diveIn {
+    0% {
+        transform: translate(-50%, -50%) scale(1);
+        opacity: 1;
+    }
+    30% {
+        transform: translate(-50%, -50%) scale(3);
+        opacity: 1;
+    }
+    60% {
+        transform: translate(-50%, -50%) scale(8);
+        opacity: 0.8;
+    }
+    100% {
+        transform: translate(-50%, -50%) scale(20);
+        opacity: 0;
+    }
+}
+
+/* Tunnel effect for transition overlay */
+.tunnel-effect {
+    animation: tunnelZoom 1.2s cubic-bezier(0.7, 0, 0.3, 1) forwards;
+}
+
+@keyframes tunnelZoom {
+    0% {
+        background: radial-gradient(circle at center,
+            transparent 0%,
+            transparent 10%,
+            var(--tunnel-color) 10%,
+            var(--tunnel-color) 12%,
+            transparent 12%,
+            transparent 25%,
+            var(--tunnel-color) 25%,
+            var(--tunnel-color) 27%,
+            transparent 27%
+        );
+        opacity: 0;
+        transform: scale(0.1);
+    }
+    30% {
+        opacity: 1;
+        transform: scale(1);
+    }
+    60% {
+        opacity: 1;
+        transform: scale(2);
+    }
+    80% {
+        opacity: 1;
+        background: radial-gradient(circle at center,
+            transparent 0%,
+            transparent 40%,
+            var(--tunnel-color) 40%,
+            var(--tunnel-color) 100%
+        );
+    }
+    100% {
+        opacity: 0;
+        transform: scale(4);
+        background: var(--tunnel-color);
+    }
+}
+
+/* Reverse tunnel (going back to home) */
+.tunnel-reverse {
+    animation: tunnelReverse 0.8s cubic-bezier(0.7, 0, 0.3, 1) forwards;
+}
+
+@keyframes tunnelReverse {
+    0% {
+        background: var(--tunnel-color);
+        opacity: 1;
+        transform: scale(4);
+    }
+    50% {
+        opacity: 1;
+        transform: scale(1);
+    }
+    100% {
+        opacity: 0;
+        transform: scale(0.1);
+    }
+}
+
+/* --- NUMBER TICK ANIMATION --- */
+.number-tick {
+    animation: numberTick 0.3s ease;
+}
+
+@keyframes numberTick {
+    0% { transform: translateY(-10px); opacity: 0; }
+    50% { transform: translateY(2px); }
+    100% { transform: translateY(0); opacity: 1; }
+}
+
+/* --- POSITION CHANGE ANIMATIONS --- */
+.pos-change-up {
+    animation: posUp 0.5s ease;
+}
+
+.pos-change-down {
+    animation: posDown 0.5s ease;
+}
+
+@keyframes posUp {
+    0% { transform: translateY(40px); opacity: 0; background: rgba(0, 255, 65, 0.1); }
+    100% { transform: translateY(0); opacity: 1; background: transparent; }
+}
+
+@keyframes posDown {
+    0% { transform: translateY(-40px); opacity: 0; background: rgba(255, 0, 51, 0.1); }
+    100% { transform: translateY(0); opacity: 1; background: transparent; }
+}
+
+/* --- GLOW PULSE --- */
+.glow-pulse {
+    animation: glowPulse 2s ease-in-out infinite;
+}
+
+@keyframes glowPulse {
+    0%, 100% { opacity: 0.7; }
+    50% { opacity: 1; }
+}
+
+/* --- SHAKE (for crashes) --- */
+.shake {
+    animation: shake 0.5s ease;
+}
+
+@keyframes shake {
+    0%, 100% { transform: translateX(0); }
+    10%, 50%, 90% { transform: translateX(-5px); }
+    30%, 70% { transform: translateX(5px); }
+}
+
+/* --- CONFETTI --- */
+.confetti-piece {
+    position: fixed;
+    width: 8px;
+    height: 8px;
+    z-index: 9999;
+    animation: confettiFall linear forwards;
+}
+
+@keyframes confettiFall {
+    0% {
+        transform: translateY(-100vh) rotate(0deg);
+        opacity: 1;
+    }
+    100% {
+        transform: translateY(100vh) rotate(720deg);
+        opacity: 0;
+    }
+}
+
+/* --- SLIDE ANIMATIONS --- */
+.slide-in-left {
+    animation: slideInLeft 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.slide-in-right {
+    animation: slideInRight2 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.slide-in-up {
+    animation: slideInUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.slide-in-down {
+    animation: slideInDown 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes slideInLeft {
+    from { transform: translateX(-40px); opacity: 0; }
+    to { transform: translateX(0); opacity: 1; }
+}
+
+@keyframes slideInRight2 {
+    from { transform: translateX(40px); opacity: 0; }
+    to { transform: translateX(0); opacity: 1; }
+}
+
+@keyframes slideInUp {
+    from { transform: translateY(40px); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
+}
+
+@keyframes slideInDown {
+    from { transform: translateY(-40px); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
+}
+
+/* --- FADE --- */
+.fade-in {
+    animation: fadeIn 0.5s ease forwards;
+}
+
+.fade-out {
+    animation: fadeOutAnim 0.5s ease forwards;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+@keyframes fadeOutAnim {
+    from { opacity: 1; }
+    to { opacity: 0; }
+}
+
+/* --- SCALE POP --- */
+.scale-pop {
+    animation: scalePop 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes scalePop {
+    0% { transform: scale(0.8); opacity: 0; }
+    50% { transform: scale(1.05); }
+    100% { transform: scale(1); opacity: 1; }
+}
+
+/* --- STAGGERED CHILDREN --- */
+.stagger-children > * {
+    opacity: 0;
+    animation: slideInUp 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.stagger-children > *:nth-child(1) { animation-delay: 0.05s; }
+.stagger-children > *:nth-child(2) { animation-delay: 0.1s; }
+.stagger-children > *:nth-child(3) { animation-delay: 0.15s; }
+.stagger-children > *:nth-child(4) { animation-delay: 0.2s; }
+.stagger-children > *:nth-child(5) { animation-delay: 0.25s; }
+.stagger-children > *:nth-child(6) { animation-delay: 0.3s; }
+.stagger-children > *:nth-child(7) { animation-delay: 0.35s; }
+.stagger-children > *:nth-child(8) { animation-delay: 0.4s; }
+.stagger-children > *:nth-child(9) { animation-delay: 0.45s; }
+.stagger-children > *:nth-child(10) { animation-delay: 0.5s; }
+.stagger-children > *:nth-child(11) { animation-delay: 0.55s; }
+.stagger-children > *:nth-child(12) { animation-delay: 0.6s; }
+
+/* --- RACE START LIGHTS --- */
+.race-light {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: var(--gray-900);
+    border: 2px solid var(--gray-700);
+    transition: background 0.2s ease;
+}
+
+.race-light.on {
+    background: var(--red);
+    box-shadow: 0 0 20px var(--red), 0 0 40px var(--red-glow);
+}
+
+.race-light.go {
+    background: var(--green);
+    box-shadow: 0 0 20px var(--green), 0 0 40px var(--green-glow);
+}
+
+/* --- TRACK GLOW --- */
+.track-illuminate {
+    animation: trackGlow 1s ease forwards;
+}
+
+@keyframes trackGlow {
+    0% { opacity: 0.3; filter: brightness(1); }
+    30% { opacity: 1; filter: brightness(2); }
+    100% { opacity: 0.3; filter: brightness(1); }
+}
+
+/* --- CAR TRAIL EFFECT --- */
+.car-trail {
+    opacity: 0;
+    animation: trailFade 0.5s ease forwards;
+}
+
+@keyframes trailFade {
+    from { opacity: 0.5; }
+    to { opacity: 0; }
+}
+
+/* --- SAFETY CAR FLASH --- */
+.sc-flash {
+    animation: scFlash 0.5s ease infinite alternate;
+}
+
+@keyframes scFlash {
+    from { color: var(--yellow); text-shadow: 0 0 10px var(--yellow); }
+    to { color: var(--white); text-shadow: none; }
+}

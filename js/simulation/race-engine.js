@@ -1,0 +1,1327 @@
+/* ============================================
+   VELOCITY — RACE ENGINE (UPDATED)
+   - Pit limit: max 4 pit stops per car
+   - Pit animation: cars slow into pit lane
+   - Visual pit stop with timing
+   ============================================ */
+
+const RaceEngine = (() => {
+
+    let raceState = null;
+    let isRunning = false;
+    let isPaused = false;
+    let lastTickTime = 0;
+    let accumulator = 0;
+
+    const MAX_PIT_STOPS = 99;  // Removed pit stop limit completely
+
+    /* ===== INITIALIZATION ===== */
+
+    function initRace(track, allTeams, options = {}) {
+        const cars = createCarsFromTeams(allTeams, options);
+        const weatherState = WeatherSystem.createWeatherState(track);
+        WeatherSystem.generateForecast(weatherState, track.laps);
+
+        const difficulty = options.difficulty || 'COMPETITIVE';
+        AIDriver.initAllAICars(cars, difficulty);
+
+        const grid = options.grid || generateRandomGrid(cars);
+        applyGridPositions(cars, grid);
+
+        cars.forEach(car => {
+            car.strategy = PitStrategy.createStrategyPlan(car, track, weatherState, {
+                aggression: car.ai?.personality?.aggression * 10 || 5
+            });
+        });
+
+        raceState = {
+            track: track,
+            cars: cars,
+            weather: weatherState,
+            currentLap: 0,
+            totalLaps: track.laps,
+            status: 'PRE_RACE',
+            scLapsRemaining: 0,
+            scDuration: 0,
+            vscLapsRemaining: 0,
+            events: [],
+            recentEvents: [],
+            fastestLap: null,
+            fastestLapDriverId: null,
+            startTime: null,
+            elapsedTime: 0,
+            speed: options.speed || 2,
+            playerTeamId: options.playerTeamId,
+            difficulty: difficulty,
+            finished: false,
+            results: null,
+            lapStartTime: 0
+        };
+
+        raceState.cars.sort((a, b) => a.gridPosition - b.gridPosition);
+        updatePositions();
+
+        return raceState;
+    }
+
+    function createCarsFromTeams(allTeams, options = {}) {
+        const cars = [];
+        let carId = 0;
+
+        // Indestructible safeguard: If allTeams is missing or invalid, auto-rebuild definitive master teams
+        let validTeams = allTeams;
+        if (!validTeams || !Array.isArray(validTeams) || validTeams.length === 0) {
+            console.warn('[RaceEngine] allTeams missing or invalid! Rebuilding master teams...');
+            const playerTeam = options.playerTeamId ? (typeof getTeamById === 'function' ? getTeamById(options.playerTeamId) : null) : null;
+            if (typeof StateManager !== 'undefined' && StateManager.generateAllTeams && typeof TEAMS_DATA !== 'undefined' && typeof DRIVERS_DATA !== 'undefined') {
+                const pTeam = playerTeam || TEAMS_DATA[0];
+                const pDrivers = pTeam.drivers || [DRIVERS_DATA[0], DRIVERS_DATA[1]];
+                validTeams = StateManager.generateAllTeams(pTeam, pDrivers);
+            } else if (typeof TEAMS_DATA !== 'undefined' && typeof DRIVERS_DATA !== 'undefined') {
+                validTeams = TEAMS_DATA.map((t, i) => ({
+                    ...t,
+                    isPlayer: options.playerTeamId ? t.id === options.playerTeamId : i === 0,
+                    isLocalPlayer: options.playerTeamId ? t.id === options.playerTeamId : i === 0,
+                    drivers: options.playerTeamId && t.id === options.playerTeamId ? [DRIVERS_DATA[0], DRIVERS_DATA[1]] : [DRIVERS_DATA[(i*2)%DRIVERS_DATA.length], DRIVERS_DATA[(i*2+1)%DRIVERS_DATA.length]]
+                }));
+            } else {
+                validTeams = [];
+            }
+        }
+
+        // Master Roster Guarantee: Ensure at least one local constructor team exists
+        const hasLocal = validTeams.some(t => t.isLocalPlayer || (options.playerTeamId && t.id === options.playerTeamId) || (t.isPlayer && !t.isRemotePlayer));
+        if (!hasLocal && validTeams.length > 0) {
+            validTeams[0].isPlayer = true;
+            validTeams[0].isLocalPlayer = true;
+        }
+
+        validTeams.forEach(team => {
+            team.drivers?.forEach((driver, idx) => {
+                const isLocal = team.isLocalPlayer || (options.playerTeamId && team.id === options.playerTeamId) || (team.isPlayer && !team.isRemotePlayer) || false;
+                const isRemote = team.isRemotePlayer || (team.isPlayer && options.playerTeamId && team.id !== options.playerTeamId) || false;
+                const startingCompound = (isLocal && options.strategy?.startingTire) ? options.strategy.startingTire : 'MEDIUM';
+
+                const car = {
+                    id: `car_${carId++}`,
+                    driver: driver,
+                    team: team,
+                    carStats: team.carStats || team.baseCarStats,
+                    isPlayer: team.isPlayer || isLocal || isRemote,
+                    isLocalPlayer: isLocal,
+                    isRemotePlayer: isRemote,
+
+                    gridPosition: 0,
+                    position: 0,
+                    previousPosition: 0,
+                    totalRaceTime: 0,
+                    lastLapTime: null,
+                    bestLapTime: null,
+                    currentLapTime: 0,
+                    lapCount: 0,
+                    trackProgress: 0,
+
+                    tireState: TireModel.createTireState(startingCompound),
+                    pitStopCount: 0,
+
+                    sectorTimes: [null, null, null],
+                    bestSectorTimes: [null, null, null],
+                    currentSector: 0,
+
+                    status: 'READY',
+                    dnfReason: null,
+                    drivingMode: 'STANDARD',
+
+                    inDirtyAir: false,
+                    hasSlipstream: false,
+                    hasDRS: false,
+
+                    pendingTimePenalty: 0,
+                    forcedPitNextLap: false,
+
+                    lapTimes: [],
+                    positionHistory: [],
+
+                    pitNextLap: false,
+                    nextCompound: null,
+
+                    // PIT ANIMATION STATE
+                    isPittingNow: false,        // True when in pit animation
+                    pitAnimationProgress: 0,    // 0-1 through pit sequence
+                    pitAnimationDuration: 0,    // Total time for this pit
+                    pitPhase: 'racing',         // racing, entering, stopped, exiting
+
+                    overtakeBoostsRemaining: 3,
+                    overtakeBoostActive: false,
+                    boostRiskPercent: 15,
+                    boostRegenProgress: 0
+                };
+                cars.push(car);
+            });
+        });
+
+        return cars;
+    }
+
+    function generateRandomGrid(cars) {
+        const performances = cars.map(car => ({
+            id: car.id,
+            score: LapCalculator.calculatePerformanceScore(car.driver, car.carStats) +
+                   (Math.random() * 20 - 10)
+        }));
+        performances.sort((a, b) => b.score - a.score);
+        return performances.map((p, idx) => ({ carId: p.id, position: idx + 1 }));
+    }
+
+    function applyGridPositions(cars, grid) {
+        grid.forEach(g => {
+            const car = cars.find(c => c.id === g.carId || c.driver?.id === g.carId);
+            if (car) {
+                car.gridPosition = g.position;
+                car.position = g.position;
+                car.totalRaceTime = (g.position - 1) * 0.15;
+            }
+        });
+    }
+
+    /* ===== RACE EXECUTION ===== */
+
+    function start() {
+        if (!raceState) return;
+        raceState.status = 'GREEN';
+        raceState.startTime = performance.now();
+        raceState.lapStartTime = performance.now();
+        isRunning = true;
+        isPaused = false;
+        lastTickTime = performance.now();
+        accumulator = 0;
+
+        handleRaceStart();
+
+        raceState.cars.forEach(car => {
+            car.status = 'RACING';
+        });
+
+        EventBus.emit('race:start', { track: raceState.track, cars: raceState.cars });
+    }
+
+    function handleRaceStart() {
+        const cars = raceState.cars;
+
+        cars.forEach(car => {
+            if (car.isPlayer) return;
+            const gained = AIDriver.handleRaceStart(car, car.gridPosition, cars);
+            car.totalRaceTime -= (gained * 0.2);
+        });
+
+        updatePositions();
+    }
+
+    function update(deltaTime) {
+        if (!isRunning || isPaused || !raceState || raceState.finished) return;
+
+        const scaledDelta = deltaTime * raceState.speed;
+        accumulator += scaledDelta;
+
+        const simStep = 0.1;
+
+        while (accumulator >= simStep) {
+            simulateStep(simStep);
+            accumulator -= simStep;
+        }
+
+        raceState.elapsedTime += scaledDelta;
+    }
+
+    /**
+     * Simulate one time step
+     * Handles both racing cars AND cars in pit animation
+     */
+    function simulateStep(stepSeconds) {
+        if (!raceState) return;
+        const cars = raceState.cars;
+
+        cars.forEach(car => {
+            if (car.status === 'DNF' || car.status === 'FINISHED') return;
+
+            // Handle pit animation separately
+            if (car.isPittingNow) {
+                updatePitAnimation(car, stepSeconds);
+                return;
+            }
+
+            const referenceLapTime = car.lastLapTime || raceState.track.baseLapTime;
+            const lapProgress = stepSeconds / referenceLapTime;
+
+            car.trackProgress += lapProgress;
+            car.currentLapTime += stepSeconds;
+
+            // ERS Boost Regen & Risk simulation
+            if (car.status === 'RACING') {
+                let regenRate = 0.8;
+                if (car.drivingMode === 'CONSERVE') regenRate = 1.8;
+                if (car.drivingMode === 'PUSH' || car.overtakeBoostActive) regenRate = 0.2;
+                car.boostRegenProgress = (car.boostRegenProgress || 0) + (stepSeconds * regenRate);
+                if (car.boostRegenProgress >= 100) {
+                    if (car.overtakeBoostsRemaining < 3) {
+                        car.overtakeBoostsRemaining++;
+                        car.boostRegenProgress -= 100;
+                        if (car.isPlayer && typeof EventBus !== 'undefined') {
+                            EventBus.emit('ui:notify', {
+                                message: `⚡ ${car.driver.name} - ERS Overtake Boost regenerated! (+1)`,
+                                type: 'success',
+                                duration: 2500
+                            });
+                        }
+                    } else {
+                        car.boostRegenProgress = 100;
+                    }
+                }
+
+                if (car.overtakeBoostActive || car.drivingMode === 'PUSH') {
+                    if (car.drivingMode === 'PUSH') {
+                        car.boostRiskPercent = Math.min(100, (car.boostRiskPercent || 15) + stepSeconds * 0.4);
+                    }
+                } else {
+                    let coolRate = car.drivingMode === 'CONSERVE' ? 1.5 : 0.8;
+                    car.boostRiskPercent = Math.max(10, (car.boostRiskPercent || 15) - (stepSeconds * coolRate));
+                }
+            }
+
+            checkSectorCrossing(car);
+
+            if (car.trackProgress >= 1.0) {
+                completeLap(car);
+            }
+        });
+
+        updatePositions();
+
+        // Race event check (counter-based)
+        if (!raceState._eventCheckCounter) raceState._eventCheckCounter = 0;
+        raceState._eventCheckCounter++;
+        if (raceState._eventCheckCounter >= 30) {
+            checkRaceEvents();
+            raceState._eventCheckCounter = 0;
+        }
+    }
+
+    /**
+     * Update pit animation progress
+     * 3 phases: entering (slow down) → stopped (changing tires) → exiting (speed up)
+     */
+    function updatePitAnimation(car, stepSeconds) {
+        const total = car.pitAnimationDuration;
+        const ENTER_DURATION = total * 0.25;   // 25% - slowing down
+        const STOPPED_DURATION = total * 0.55; // 55% - tires being changed
+        const EXIT_DURATION = total * 0.20;    // 20% - accelerating out
+
+        // Double Stacking Check: Is another teammate currently occupying our pit box?
+        const teammateInBox = raceState.cars.find(c =>
+            c.id !== car.id &&
+            c.team?.id === car.team?.id &&
+            c.isPittingNow &&
+            c.pitPhase === 'stopped'
+        );
+
+        // If Car reached the pit box entry but teammate is currently inside getting tires changed:
+        if (teammateInBox && car.pitAnimationProgress + stepSeconds >= ENTER_DURATION && car.pitPhase !== 'exiting') {
+            car.pitPhase = 'stack_waiting';
+            car.status = 'DOUBLE STACKING...';
+            // Time still accumulates while waiting in pit lane
+            car.totalRaceTime += stepSeconds;
+            return;
+        }
+
+        car.pitAnimationProgress += stepSeconds;
+        const progress = car.pitAnimationProgress;
+
+        // Calculate movement during pit (slower than normal)
+        let movementMultiplier = 0;
+
+        if (progress < ENTER_DURATION) {
+            // PHASE 1: Entering pit - decelerating
+            car.pitPhase = 'entering';
+            const phaseProgress = progress / ENTER_DURATION;
+            movementMultiplier = 1.0 - (phaseProgress * 0.85); // 100% → 15% speed
+        }
+        else if (progress < ENTER_DURATION + STOPPED_DURATION) {
+            // PHASE 2: Stopped - tires changing
+            car.pitPhase = 'stopped';
+            movementMultiplier = 0; // Not moving
+        }
+        else if (progress < total) {
+            // PHASE 3: Exiting - accelerating
+            car.pitPhase = 'exiting';
+            const phaseInto = progress - (ENTER_DURATION + STOPPED_DURATION);
+            const phaseProgress = phaseInto / EXIT_DURATION;
+            movementMultiplier = 0.15 + (phaseProgress * 0.85); // 15% → 100% speed
+        }
+        else {
+            // PIT COMPLETE
+            finishPitStop(car);
+            return;
+        }
+
+        // Advance position slightly (pit lane is short)
+        const referenceLapTime = car.lastLapTime || raceState.track.baseLapTime;
+        const lapProgress = (stepSeconds * movementMultiplier) / referenceLapTime;
+        car.trackProgress += lapProgress * 0.3; // Pit lane is shorter than regular lap
+
+        // Time penalty accumulates during pit
+        car.totalRaceTime += stepSeconds;
+    }
+
+    /**
+     * Called when pit animation completes
+     */
+    function finishPitStop(car) {
+        car.isPittingNow = false;
+        car.pitAnimationProgress = 0;
+        car.pitAnimationDuration = 0;
+        car.pitPhase = 'racing';
+        car.status = 'RACING';
+
+        // Emit completion event
+        EventBus.emit('race:pit_complete', {
+            car: car,
+            compound: car.tireState.compoundId
+        });
+
+        // Force radio message
+        if (car.isPlayer && typeof EventBus !== 'undefined') {
+            EventBus.emit('race:radio', {
+                text: `${car.driver.name}: Out of the pits, new tires on`,
+                priority: 'info'
+            });
+        }
+    }
+
+    function getCountrySpecificCrashRadio(driver, team) {
+        const c = (driver?.nationality || team?.country || 'UK').toUpperCase();
+        const dName = driver?.lastName || driver?.name || 'Driver';
+
+        if (c.includes('UK') || c.includes('BRITAIN') || c.includes('ENGLAND') || c.includes('AUSTRALIA') || c.includes('IRELAND') || c.includes('USA') || c.includes('AMERICA')) {
+            const lines = [
+                `🚨 ${dName}: "Oh F***! Absolute disaster, mate! The entire front bloody suspension snapped off! I'm in the wall!"`,
+                `🚨 ${dName}: "What the bloody ***K! The tire completely exploded! Complete S***! Car is destroyed!"`,
+                `🚨 ${dName}: "Ahhh ***K! Absolute horrific failure! No rear grip at all, mate! Complete DNF!"`
+            ];
+            return lines[Math.floor(Math.random() * lines.length)];
+        } else if (c.includes('ITALY') || c.includes('ITALIA')) {
+            const lines = [
+                `🚨 ${dName}: "Mamma Mia! Vaffan****! S***! What happened?! My rear tire just exploded! C*****!"`,
+                `🚨 ${dName}: "No, no, no! Porca mis****! Utter disaster! The gearbox just completely blew up! ***K!"`,
+                `🚨 ${dName}: "Ahhh C*****! Complete structural failure! Vaffan****! I am out!"`
+            ];
+            return lines[Math.floor(Math.random() * lines.length)];
+        } else if (c.includes('FRANCE')) {
+            const lines = [
+                `🚨 ${dName}: "Put*** de mer**! No, no, no! Horrific hit! Ahh, my suspension is entirely F****d! Horrible!"`,
+                `🚨 ${dName}: "Mer**! What the F*** is this reliability?! The engine completely caught fire! P*****!"`,
+                `🚨 ${dName}: "Ahh ***K! Utter absolute French disaster! I am in the gravel, completely finished!"`
+            ];
+            return lines[Math.floor(Math.random() * lines.length)];
+        } else if (c.includes('GERMANY') || c.includes('DEUTSCHLAND') || c.includes('AUSTRIA')) {
+            const lines = [
+                `🚨 ${dName}: "Schei***! Verdammt! Engine thermals critical! F****ng unbelievable complete DNF!"`,
+                `🚨 ${dName}: "What the absolute ***K! Absolute Schei***! The entire MGU-K just gave up! Unbelievable!"`,
+                `🚨 ${dName}: "Ahhh verdammt! I lost the complete rear wing! Absolute F****ng disaster!"`
+            ];
+            return lines[Math.floor(Math.random() * lines.length)];
+        } else if (c.includes('SPAIN') || c.includes('MEXICO') || c.includes('ARGENTINA') || c.includes('BRAZIL') || c.includes('PORTUGAL')) {
+            const lines = [
+                `🚨 ${dName}: "Jod**! P*** madre! Car is completely destroyed! What the F*** was that hit?!"`,
+                `🚨 ${dName}: "Filho da p***! Absolute garbage reliability! The complete steering snapped! ***K!"`,
+                `🚨 ${dName}: "Ahhh ***K! Car is completely dead! P*** madre, I am out!"`
+            ];
+            return lines[Math.floor(Math.random() * lines.length)];
+        } else {
+            const lines = [
+                `🚨 ${dName}: "What the F***! Absolute mechanical S*** mechanical failure! Complete DNF! Car is destroyed!"`,
+                `🚨 ${dName}: "Ahhh ***K! Utter catastrophic failure! The car completely gave up on me! DNF!"`,
+                `🚨 ${dName}: "No, no, no! Absolutely F****d! I am completely in the barrier, unbelievable S***!"`
+            ];
+            return lines[Math.floor(Math.random() * lines.length)];
+        }
+    }
+
+    function completeLap(car) {
+        if (!raceState) return;
+
+        car.trackProgress -= 1.0;
+        car.lapCount++;
+
+        const raceContext = {
+            currentLap: car.lapCount,
+            totalLaps: raceState.totalLaps,
+            hasSlipstream: car.hasSlipstream,
+            hasDRS: car.hasDRS,
+            inDirtyAir: car.inDirtyAir
+        };
+
+        const lapResult = LapCalculator.calculateLapTime(
+            car,
+            raceState.track,
+            raceState.weather,
+            raceContext
+        );
+
+        let lapTime = lapResult.time;
+        if (!car.isPlayer) {
+            lapTime = AIDriver.adjustLapTime(car, lapTime);
+        }
+
+        if (car.overtakeBoostActive) {
+            car.overtakeBoostActive = false;
+        }
+
+        // ERS / Engine Overheat Mistake Check
+        if ((car.boostRiskPercent || 0) > 70 && Math.random() < 0.15 && raceState.status === 'GREEN') {
+            const penalty = 2.0;
+            lapTime += penalty;
+            if (car.isPlayer && typeof EventBus !== 'undefined') {
+                EventBus.emit('ui:notify', {
+                    message: `⚠️ ${car.driver.name} made an error due to ERS / Engine overheat (+${penalty}s lost)! Cool down ERS!`,
+                    type: 'warning',
+                    duration: 5000
+                });
+            }
+        }
+
+        if (car.pendingTimePenalty > 0) {
+            lapTime += car.pendingTimePenalty;
+            car.pendingTimePenalty = 0;
+        }
+
+        const baseLapTarget = raceState.track.baseLapTime || 90;
+
+        if (raceState.status === 'SAFETY_CAR') {
+            const scBaseLap = baseLapTarget * 1.4;
+            let timeCorrection = 0;
+
+            if (raceState.cars.indexOf(car) > 0) {
+                const leader = raceState.cars[0];
+                const expectedGap = car.position * 0.9;
+                const actualGap = car.totalRaceTime + scBaseLap - leader.totalRaceTime;
+                if (actualGap > expectedGap + 0.3) {
+                    timeCorrection = (actualGap - expectedGap) * 0.5;
+                }
+            }
+
+            lapTime = scBaseLap;
+            car.lastLapTime = scBaseLap;
+            car.lapTimes.push(scBaseLap);
+            car.totalRaceTime += (scBaseLap - timeCorrection);
+        } else {
+            car.lastLapTime = lapTime;
+            car.lapTimes.push(lapTime);
+            car.totalRaceTime += lapTime;
+        }
+
+        car.currentLapTime = 0;
+
+        const isValidFastLap = raceState.status === 'GREEN' && car.pitPhase === 'racing' && lapTime >= baseLapTarget * 0.88 && lapTime <= baseLapTarget * 1.45;
+
+        if (isValidFastLap) {
+            if (!car.bestLapTime || lapTime < car.bestLapTime) {
+                car.bestLapTime = lapTime;
+            }
+        } else if (!car.bestLapTime && lapTime > 0) {
+            car.bestLapTime = Math.max(baseLapTarget * 0.94, lapTime);
+        }
+
+        const sectors = lapResult.sectors;
+        car.sectorTimes = sectors;
+        sectors.forEach((s, idx) => {
+            if (!car.bestSectorTimes[idx] || s < car.bestSectorTimes[idx]) {
+                car.bestSectorTimes[idx] = s;
+            }
+        });
+        car.currentSector = 0;
+
+        TireModel.updateLap(
+            car.tireState,
+            car.driver,
+            raceState.weather.current,
+            car.drivingMode
+        );
+
+        // DRAMATIC TIRE LIFE END CHECK (50% crash, 50% emergency pit without asking)
+        if (car.tireState.isWornOut && !car.tireState.deadDramaTriggered && car.status !== 'DNF') {
+            car.tireState.deadDramaTriggered = true;
+            if (Math.random() < 0.5) {
+                car.status = 'DNF';
+                car.dnfReason = 'CRITICAL TIRE BLOWOUT — HORRIFIC BARRIER CRASH';
+                const blowEvent = {
+                    id: 'event_' + Date.now() + '_' + Math.random().toString(36).substr(2,4),
+                    type: 'INCIDENT',
+                    severity: 'DANGER',
+                    message: `💥 CRITICAL TIRE FAILURE! ${car.driver.name}'s tires blew out! Horrific crash into the barriers!`,
+                    driverId: car.id,
+                    driverName: car.driver.name,
+                    teamName: car.team?.name,
+                    lap: raceState.currentLap,
+                    effects: { dnf: true, triggerSC: true }
+                };
+                addEvent(blowEvent);
+                if (typeof EventBus !== 'undefined') {
+                    EventBus.emit('race:incident', blowEvent);
+                    if (car.isPlayer) {
+                        const swearLine = getCountrySpecificCrashRadio(car.driver, car.team);
+                        EventBus.emit('race:radio', {
+                            text: swearLine,
+                            priority: 'critical',
+                            driver: car.driver.name
+                        });
+                        EventBus.emit('ui:notify', {
+                            message: swearLine,
+                            type: 'danger',
+                            duration: 10000
+                        });
+                    } else {
+                        const rivalCrashAnnouncements = [
+                            `Engineer: Yellow flags deployed. ${car.driver.name} has crashed out of the race. Medical vehicle deployed.`,
+                            `Strategist: Double yellow ahead. Rivals confirm ${car.driver.name} has suffered a severe crash.`,
+                            `Engineer: Yellow flags Turn 4. ${car.driver.name} has crashed out into the barrier. Keep your delta positive.`,
+                            `Team Principal: Copy that, stewards confirm ${car.driver.name} is out of the Grand Prix. That moves us up a position.`,
+                            `Engineer: Virtual Safety Car deployed. ${car.driver.name} has suffered a catastrophic barrier crash.`
+                        ];
+                        const staffAnnouncement = rivalCrashAnnouncements[Math.floor(Math.random() * rivalCrashAnnouncements.length)];
+                        EventBus.emit('race:radio', {
+                            text: staffAnnouncement,
+                            priority: 'warning',
+                            isStaff: true
+                        });
+                        EventBus.emit('ui:notify', {
+                            message: `⚠️ RIVAL RETIREMENT: ${car.driver.name} (${car.team?.name || 'Rival'}) has crashed out of the race.`,
+                            type: 'warning',
+                            duration: 8000
+                        });
+                    }
+                }
+                triggerSafetyCar('crash');
+            } else {
+                car.forcedPitNextLap = true;
+                const pitDramaEvent = {
+                    id: 'event_' + Date.now() + '_' + Math.random().toString(36).substr(2,4),
+                    type: 'INCIDENT',
+                    severity: 'WARNING',
+                    message: `🚨 EMERGENCY BOX! ${car.driver.name}'s tires are dead! Pitting immediately to avoid a blowout!`,
+                    driverId: car.id,
+                    driverName: car.driver.name,
+                    teamName: car.team?.name,
+                    lap: raceState.currentLap
+                };
+                addEvent(pitDramaEvent);
+                if (typeof EventBus !== 'undefined') {
+                    EventBus.emit('race:incident', pitDramaEvent);
+                    if (car.isPlayer) {
+                        const urgentShout = `🚨 EMERGENCY RADIO (${car.driver.name}): "Tires are completely GONE! I cannot steer! Boxing NOW, box box box!"`;
+                        EventBus.emit('race:radio', {
+                            text: `${car.driver.name}: "Tires are completely GONE! Boxing NOW!"`,
+                            priority: 'critical',
+                            driver: car.driver.name,
+                            category: 'tire_cliff'
+                        });
+                        EventBus.emit('ui:notify', {
+                            message: urgentShout,
+                            type: 'danger',
+                            duration: 10000
+                        });
+                    } else {
+                        EventBus.emit('ui:notify', {
+                            message: `⚠️ RIVAL EMERGENCY PIT: ${car.driver.name} (${car.team?.name || 'Rival'}) is boxing to avoid a horrific tire blowout!`,
+                            type: 'warning',
+                            duration: 8000
+                        });
+                    }
+                }
+            }
+        }
+
+        if (isValidFastLap && (!raceState.fastestLap || lapTime < raceState.fastestLap)) {
+            raceState.fastestLap = lapTime;
+            raceState.fastestLapDriverId = car.id;
+            const flEvent = EventSystem.createFastestLapEvent(car, lapTime, car.lapCount);
+            addEvent(flEvent);
+            if (typeof EventBus !== 'undefined') EventBus.emit('race:fastest_lap', flEvent);
+        }
+
+        const events = EventSystem.checkCarEvents(car, raceState, raceState.weather);
+        events.forEach(event => {
+            EventSystem.applyEventEffects(car, event);
+            addEvent(event);
+            if (typeof EventBus !== 'undefined') {
+                EventBus.emit('race:incident', event);
+                if (event.effects?.dnf || car.status === 'DNF') {
+                    if (car.isPlayer) {
+                        const swearLine = getCountrySpecificCrashRadio(car.driver, car.team);
+                        EventBus.emit('race:radio', {
+                            text: swearLine,
+                            priority: 'critical',
+                            driver: car.driver.name
+                        });
+                        EventBus.emit('ui:notify', {
+                            message: swearLine,
+                            type: 'danger',
+                            duration: 10000
+                        });
+                    } else {
+                        const rivalRetireAnnouncements = [
+                            `Engineer: Yellow flags. ${car.driver.name} has suffered a severe incident and crashed out of the race.`,
+                            `Strategist: Rivals confirm ${car.driver.name} has retired. That moves us up a position.`,
+                            `Engineer: Sector 2 yellow. ${car.driver.name} is completely out of the race. Keep your rhythm.`,
+                            `Team Principal: Splendid news, ${car.driver.name} has suffered a mechanical failure and retired.`,
+                            `Engineer: Stewards confirm ${car.driver.name} has pulled over. Safety procedures active.`
+                        ];
+                        const staffAnnouncement = rivalRetireAnnouncements[Math.floor(Math.random() * rivalRetireAnnouncements.length)];
+                        EventBus.emit('race:radio', {
+                            text: staffAnnouncement,
+                            priority: 'warning',
+                            isStaff: true
+                        });
+                        EventBus.emit('ui:notify', {
+                            message: `⚠️ RIVAL RETIREMENT: ${car.driver.name} (${car.team?.name || 'Rival'}) has retired from the Grand Prix.`,
+                            type: 'warning',
+                            duration: 8000
+                        });
+                    }
+                }
+            }
+            if (event.effects?.triggerSC) {
+                triggerSafetyCar('crash');
+            }
+        });
+
+        if (!car.isPlayer) {
+            AIDriver.makeDecisions(car, raceState, raceState.weather, raceState.cars);
+
+            if (car.ai && car.ai.pitNextLap) {
+                car.pitNextLap = true;
+                car.ai.pitNextLap = false;
+            }
+        }
+
+        // PIT STOP - bypass max limit for emergency forced pits
+        if (car.pitNextLap || car.forcedPitNextLap) {
+            if (!car.forcedPitNextLap && car.pitStopCount >= MAX_PIT_STOPS) {
+                // Already at max pits, cancel
+                car.pitNextLap = false;
+                car.forcedPitNextLap = false;
+
+                if (car.isPlayer && typeof EventBus !== 'undefined') {
+                    EventBus.emit('ui:notify', {
+                        message: `Max pit stops reached (${MAX_PIT_STOPS}). Must finish on current tires.`,
+                        type: 'warning'
+                    });
+                }
+            } else {
+                performPitStop(car);
+                car.pitNextLap = false;
+                car.forcedPitNextLap = false;
+            }
+        }
+
+        // Driver-initiated pit request (player drivers only)
+        if (car.isPlayer && !car.pitNextLap && !car.pitRequested && car.pitStopCount < MAX_PIT_STOPS) {
+            const tireWear = car.tireState.wearPercent;
+            if (tireWear > 70 && Math.random() < 0.20) {
+                car.pitRequested = true;
+                car.pitRequestedAt = raceState.currentLap;
+
+                EventBus.emit('race:driver_pit_request', {
+                    car: car,
+                    reason: 'Tires falling off, want to box?'
+                });
+
+                // Auto-expire after 2 laps if ignored
+                setTimeout(() => {
+                    if (car.pitRequested && raceState.currentLap - car.pitRequestedAt >= 2) {
+                        car.pitRequested = false;
+                    }
+                }, 100);
+            }
+            if (car.pitStopCount > 0) car.pitRequested = false;
+        }
+
+        checkOvertakes(car);
+        updateAerodynamicState(car);
+
+        if (car.lapCount >= raceState.totalLaps) {
+            car.status = 'FINISHED';
+            car.finishPosition = raceState.cars.filter(c => c.status === 'FINISHED').length;
+        }
+
+        updateRaceLap();
+
+        EventBus.emit('race:lap_complete', {
+            car: car,
+            lap: car.lapCount,
+            lapTime: lapTime,
+            position: car.position
+        });
+    }
+
+    function checkSectorCrossing(car) {
+        const sectorBoundaries = [0.33, 0.66, 1.0];
+        const currentSector = car.currentSector;
+        const targetProgress = sectorBoundaries[currentSector];
+
+        if (car.trackProgress >= targetProgress && currentSector < 2) {
+            car.currentSector++;
+        }
+    }
+
+    function updatePositions() {
+        if (!raceState) return;
+
+        const sortedCars = [...raceState.cars]
+            .filter(c => c.status !== 'DNF')
+            .sort((a, b) => {
+                const progA = a.lapCount + a.trackProgress;
+                const progB = b.lapCount + b.trackProgress;
+                if (Math.abs(progB - progA) > 0.0001) {
+                    return progB - progA;
+                }
+                return a.totalRaceTime - b.totalRaceTime;
+            });
+
+        const dnfCars = raceState.cars.filter(c => c.status === 'DNF');
+
+        sortedCars.forEach((car, idx) => {
+            car.previousPosition = car.position;
+            car.position = idx + 1;
+        });
+        dnfCars.forEach((car, idx) => {
+            car.position = sortedCars.length + idx + 1;
+        });
+
+        raceState.cars.sort((a, b) => a.position - b.position);
+
+        sortedCars.forEach(car => {
+            if (car.isPlayer && car.previousPosition !== car.position && car.previousPosition !== 0) {
+                if (car.position < car.previousPosition) {
+                    EventBus.emit('race:position_gained', car);
+                } else {
+                    EventBus.emit('race:position_lost', car);
+                }
+            }
+        });
+    }
+
+    function updateAerodynamicState(car) {
+        if (car.isPittingNow) {
+            car.hasSlipstream = false;
+            car.hasDRS = false;
+            car.inDirtyAir = false;
+            return;
+        }
+
+        const carAhead = findCarAhead(car);
+        if (!carAhead) {
+            car.hasSlipstream = false;
+            car.hasDRS = false;
+            car.inDirtyAir = false;
+            return;
+        }
+
+        const gap = car.totalRaceTime - carAhead.totalRaceTime;
+
+        if (Math.abs(gap) < 1.0 && raceState.currentLap >= 2 && raceState.status === 'GREEN') {
+            car.hasDRS = true;
+            car.hasSlipstream = true;
+            car.inDirtyAir = false;
+        } else if (Math.abs(gap) < 2.0) {
+            car.hasSlipstream = true;
+            car.hasDRS = false;
+            car.inDirtyAir = false;
+        } else if (Math.abs(gap) < 3.0) {
+            car.hasSlipstream = false;
+            car.hasDRS = false;
+            car.inDirtyAir = true;
+        } else {
+            car.hasSlipstream = false;
+            car.hasDRS = false;
+            car.inDirtyAir = false;
+        }
+    }
+
+    function checkOvertakes(car) {
+        if (car.isPittingNow) return;
+
+        const carAhead = findCarAhead(car);
+        if (!carAhead || carAhead.isPittingNow) return;
+
+        const gap = car.totalRaceTime - carAhead.totalRaceTime;
+        if (gap > 0.8 || gap < -0.3) return;
+
+        if (!car.isPlayer) {
+            if (!AIDriver.shouldAttemptOvertake(car, carAhead, raceState.track)) return;
+        }
+
+        const chance = LapCalculator.calculateOvertakeChance(car, carAhead, raceState.track);
+
+        if (Math.random() < chance) {
+            const event = EventSystem.createOvertakeEvent(car, carAhead, raceState.currentLap);
+            addEvent(event);
+            EventBus.emit('race:overtake', event);
+
+            const swapAmount = 0.3;
+            carAhead.totalRaceTime += swapAmount;
+            car.totalRaceTime -= swapAmount;
+            updatePositions();
+        }
+    }
+
+    function findCarAhead(car) {
+        const idx = raceState.cars.indexOf(car);
+        if (idx <= 0) return null;
+        for (let i = idx - 1; i >= 0; i--) {
+            if (raceState.cars[i].status !== 'DNF') return raceState.cars[i];
+        }
+        return null;
+    }
+
+    /**
+     * Perform a pit stop - starts the animation sequence
+     */
+    function performPitStop(car) {
+        const newCompound = car.nextCompound ||
+            PitStrategy.chooseNextCompound(car, raceState, raceState.weather);
+
+        // Calculate pit stop duration (in race seconds)
+        const pitLanePenalty = raceState.track.pitLanePenalty || 18;
+        const pitCrew = car.team?.staff?.pitCrew || car.team?.pitCrew;
+        const crewBonus = pitCrew?.bonus?.pitStopTime || 0;
+        const baseStopTime = 2.8;
+        const stopTime = Math.max(2.0, baseStopTime + crewBonus);
+        const variance = (Math.random() - 0.5) * 0.6;
+        const totalPitTime = pitLanePenalty + stopTime + variance;
+
+        // Update tire state
+        TireModel.pitStop(car.tireState, newCompound, raceState.currentLap);
+
+        // Update strategy index
+        if (car.strategy && car.strategy.currentStintIndex < car.strategy.stints.length - 1) {
+            car.strategy.currentStintIndex++;
+        }
+
+        // Start pit animation
+        car.isPittingNow = true;
+        car.pitAnimationProgress = 0;
+        car.pitAnimationDuration = totalPitTime;
+        car.pitPhase = 'entering';
+        car.status = 'PITTING';
+        car.pitStopCount++;
+        car.nextCompound = null;
+        car.forcedPitNextLap = false;
+
+        // Create pit event
+        const event = EventSystem.createPitStopEvent(car, newCompound, totalPitTime, raceState.currentLap);
+        addEvent(event);
+        EventBus.emit('race:pit_stop', event);
+
+        // Notify if approaching pit limit
+        if (car.isPlayer && car.pitStopCount === MAX_PIT_STOPS - 1) {
+            EventBus.emit('ui:notify', {
+                message: `Only 1 pit stop remaining for ${car.driver.name}`,
+                type: 'warning'
+            });
+        } else if (car.isPlayer && car.pitStopCount === MAX_PIT_STOPS) {
+            EventBus.emit('ui:notify', {
+                message: `Final pit stop used for ${car.driver.name}`,
+                type: 'warning'
+            });
+        }
+
+        updatePositions();
+    }
+
+    /* ===== SAFETY CAR ===== */
+
+    function checkRaceEvents() {
+        if (raceState.status === 'GREEN') {
+            const sc = EventSystem.checkSafetyCarTrigger(raceState, raceState.track, raceState.recentEvents);
+            if (sc.triggered) {
+                triggerSafetyCar(sc.reason, sc.duration);
+            }
+        }
+
+        if (raceState.status === 'SAFETY_CAR' && raceState.scLapsRemaining > 0) {
+            raceState.scLapsRemaining--;
+            if (raceState.scLapsRemaining <= 0) {
+                resumeGreenFlag();
+            }
+        }
+
+        const weatherChanged = WeatherSystem.updateLap(
+            raceState.weather,
+            raceState.currentLap,
+            raceState.track
+        );
+        if (weatherChanged) {
+            const event = EventSystem.createWeatherChangeEvent(
+                raceState.weather.previous,
+                raceState.weather.current,
+                raceState.currentLap
+            );
+            addEvent(event);
+            EventBus.emit('weather:changed', event);
+        }
+    }
+
+    function triggerSafetyCar(reason, duration = null) {
+        if (raceState.status !== 'GREEN') return;
+
+        const scDuration = duration || (3 + Math.floor(Math.random() * 3));
+        raceState.status = 'SAFETY_CAR';
+        raceState.scDuration = scDuration;
+        raceState.scLapsRemaining = scDuration;
+        raceState.lastSCLap = raceState.currentLap;
+        raceState.scDeployedAt = raceState.currentLap;
+
+        const event = EventSystem.createSafetyCarEvent(reason, scDuration, raceState.currentLap);
+        addEvent(event);
+        EventBus.emit('race:safety_car', event);
+
+        // CINEMATIC: Slow race speed to 2x for 3 seconds
+        throttleSpeedForSafetyCar();
+
+        bunchUpFieldForSC();
+    }
+
+    /**
+     * Throttle race speed when safety car deploys
+     * Lets player react and see the situation
+     */
+    let scSpeedThrottleTimeout = null;
+    let scOriginalSpeed = null;
+
+    function throttleSpeedForSafetyCar() {
+        if (!raceState) return;
+
+        const currentSpeed = raceState.speed;
+        if (currentSpeed <= 2) return; // Already slow enough
+
+        // Save original speed
+        if (scSpeedThrottleTimeout) {
+            clearTimeout(scSpeedThrottleTimeout);
+        } else {
+            scOriginalSpeed = currentSpeed;
+        }
+
+        // Drop to 2x
+        raceState.speed = 2;
+        EventBus.emit('race:speed_change', { speed: 2 });
+        EventBus.emit('ui:notify', {
+            message: '⚠️ SAFETY CAR — Speed dropped to 2x',
+            type: 'warning',
+            duration: 3000
+        });
+
+        // Restore after 3 seconds
+        scSpeedThrottleTimeout = setTimeout(() => {
+            if (scOriginalSpeed !== null && raceState) {
+                raceState.speed = scOriginalSpeed;
+                EventBus.emit('race:speed_change', { speed: scOriginalSpeed });
+                scOriginalSpeed = null;
+            }
+            scSpeedThrottleTimeout = null;
+        }, 3000);
+    }
+
+    function bunchUpFieldForSC() {
+        const leader = raceState.cars[0];
+        raceState.cars.forEach((car, idx) => {
+            if (idx === 0 || car.status === 'DNF') return;
+            const targetGap = idx * 1.2;
+            car.totalRaceTime = leader.totalRaceTime + targetGap;
+        });
+    }
+
+    function resumeGreenFlag() {
+        raceState.status = 'GREEN';
+        raceState.scLapsRemaining = 0;
+        EventBus.emit('race:green_flag', { lap: raceState.currentLap });
+    }
+
+    function updateRaceLap() {
+        const leader = raceState.cars[0];
+        if (!leader) return;
+
+        const newLap = Math.min(raceState.totalLaps, leader.lapCount + 1);
+        if (newLap !== raceState.currentLap) {
+            raceState.currentLap = newLap;
+            if (typeof EventBus !== 'undefined') EventBus.emit('race:new_lap', { lap: newLap });
+        }
+
+        if (leader.lapCount >= raceState.totalLaps) {
+            finishRace();
+        }
+    }
+
+    function finishRace() {
+        if (!raceState || raceState.finished) return;
+        raceState.finished = true;
+        raceState.status = 'FINISHED';
+        isRunning = false;
+
+        const results = generateResults();
+        raceState.results = results;
+
+        const playerCars = raceState.cars.filter(c =>
+            c.team.id === raceState.playerTeamId
+        );
+        if (playerCars.some(c => c.position === 1)) {
+            EventBus.emit('race:victory', playerCars.find(c => c.position === 1));
+        }
+
+        EventBus.emit('race:finish', { results: results, race: raceState });
+    }
+
+    function generateResults() {
+        const finished = raceState.cars.filter(c => c.status === 'FINISHED' || c.status === 'RACING' || c.status === 'PITTING');
+        const dnf = raceState.cars.filter(c => c.status === 'DNF');
+
+        finished.sort((a, b) => a.position - b.position);
+
+        const results = finished.map((car, idx) => {
+            const position = idx + 1;
+            const points = getPointsForPosition(position);
+            return {
+                position: position,
+                car: car,
+                driver: car.driver,
+                team: car.team,
+                time: car.totalRaceTime,
+                gap: idx === 0 ? null : car.totalRaceTime - finished[0].totalRaceTime,
+                lapsCompleted: car.lapCount,
+                bestLap: car.bestLapTime,
+                points: points,
+                fastestLap: car.id === raceState.fastestLapDriverId,
+                fastestLapBonus: car.id === raceState.fastestLapDriverId && position <= 10 ? 1 : 0,
+                status: 'FINISHED'
+            };
+        });
+
+        dnf.forEach((car, idx) => {
+            results.push({
+                position: finished.length + idx + 1,
+                car: car,
+                driver: car.driver,
+                team: car.team,
+                time: null,
+                gap: null,
+                lapsCompleted: car.lapCount,
+                bestLap: car.bestLapTime,
+                points: 0,
+                fastestLap: false,
+                fastestLapBonus: 0,
+                status: 'DNF',
+                dnfReason: car.dnfReason
+            });
+        });
+
+        return results;
+    }
+
+    function getPointsForPosition(position) {
+        const POINTS = [25, 18, 15, 12, 10, 8, 6, 4, 2, 1];
+        return POINTS[position - 1] || 0;
+    }
+
+    /* ===== PLAYER CONTROLS ===== */
+
+    function playerPitCall(carId, compound = null) {
+        const car = raceState.cars.find(c => c.id === carId);
+        if (!car || !car.isPlayer) return;
+
+        // Check pit limit
+        if (car.pitStopCount >= MAX_PIT_STOPS) {
+            EventBus.emit('ui:notify', {
+                message: `Max pit stops (${MAX_PIT_STOPS}) reached for ${car.driver.name}`,
+                type: 'error'
+            });
+            return;
+        }
+
+        // Already pitting?
+        if (car.isPittingNow) {
+            EventBus.emit('ui:notify', {
+                message: `${car.driver.name} is currently pitting`,
+                type: 'warning'
+            });
+            return;
+        }
+
+        car.pitNextLap = true;
+        car.nextCompound = compound;
+        car.pitRequested = false; // Clear any pending request
+
+        EventBus.emit('ui:notify', {
+            message: `${car.driver.name} - Box this lap (${car.pitStopCount + 1}/${MAX_PIT_STOPS})`,
+            type: 'info'
+        });
+    }
+
+    function setDriverMode(carId, mode) {
+        const car = raceState.cars.find(c => c.id === carId);
+        if (!car || !car.isPlayer) return;
+        if (car.isPittingNow) return; // Can't change mode while pitting
+        car.drivingMode = mode;
+    }
+
+    function activateOvertakeBoost(carId) {
+        const car = raceState.cars.find(c => c.id === carId);
+        if (!car || !car.isPlayer) return false;
+        if (car.overtakeBoostsRemaining <= 0) return false;
+        if (car.overtakeBoostActive) return false; // Prevent double activation in same lap
+        if (car.isPittingNow) return false;
+
+        car.overtakeBoostActive = true;
+        car.overtakeBoostsRemaining--;
+        car.boostRiskPercent = Math.min(100, (car.boostRiskPercent || 15) + 35);
+        if (typeof EventBus !== 'undefined') {
+            EventBus.emit('race:boost_activated', { car });
+        }
+        return true;
+    }
+
+    /* ===== PLAYBACK CONTROLS ===== */
+
+    function setSpeed(speed) {
+        if (!raceState) return;
+        raceState.speed = speed;
+        EventBus.emit('race:speed_change', { speed });
+    }
+
+    function pause() {
+        isPaused = true;
+        EventBus.emit('race:pause');
+    }
+
+    function resume() {
+        isPaused = false;
+        lastTickTime = performance.now();
+        EventBus.emit('race:resume');
+    }
+
+    function togglePause() {
+        if (isPaused) resume();
+        else pause();
+    }
+
+    function skipToEnd() {
+        if (!raceState || raceState.finished) return;
+
+        const maxIterations = 50000;
+        let iterations = 0;
+
+        const wasPaused = isPaused;
+        isPaused = false;
+
+        while (!raceState.finished && iterations < maxIterations) {
+            simulateStep(0.5);
+            iterations++;
+        }
+
+        if (!raceState.finished) {
+            console.warn('[RaceEngine] Skip exceeded max iterations, force-finishing');
+            raceState.cars.forEach(car => {
+                if (car.status !== 'DNF') car.status = 'FINISHED';
+            });
+            finishRace();
+        }
+
+        isPaused = wasPaused;
+        EventBus.emit('race:skipped_to_end', { results: raceState.results });
+    }
+
+    /* ===== EVENT MANAGEMENT ===== */
+
+    function addEvent(event) {
+        raceState.events.push(event);
+        raceState.recentEvents.push(event);
+        if (raceState.recentEvents.length > 10) {
+            raceState.recentEvents.shift();
+        }
+    }
+
+    function getRecentEvents(count = 5) {
+        return raceState.events.slice(-count).reverse();
+    }
+
+    /* ===== PUBLIC GETTERS ===== */
+
+    function getState() { return raceState; }
+    function getCars() { return raceState?.cars || []; }
+    function getCar(id) { return raceState?.cars.find(c => c.id === id); }
+    function getStandings() { return raceState?.cars || []; }
+    function getCurrentLap() { return raceState?.currentLap || 0; }
+    function getTotalLaps() { return raceState?.totalLaps || 0; }
+    function getStatus() { return raceState?.status || 'NONE'; }
+    function getWeather() { return raceState?.weather; }
+    function getSpeed() { return raceState?.speed || 1; }
+    function getMaxPitStops() { return MAX_PIT_STOPS; }
+    function getPlayerCars() {
+        if (!raceState) return [];
+        return raceState.cars.filter(c => c.isPlayer);
+    }
+    function getLocalPlayerCars() {
+        if (!raceState) return [];
+        return raceState.cars.filter(c => c.isLocalPlayer || (c.isPlayer && !c.isRemotePlayer));
+    }
+    function getSafetyCarState() {
+        if (!raceState) return null;
+        return {
+            deployed: raceState.status === 'SAFETY_CAR',
+            lapsRemaining: raceState.scLapsRemaining,
+            duration: raceState.scDuration,
+            deployedAt: raceState.scDeployedAt
+        };
+    }
+    function isFinished() { return raceState?.finished || false; }
+    function isCurrentlyPaused() { return isPaused; }
+
+    function destroy() {
+        isRunning = false;
+        isPaused = false;
+        raceState = null;
+        accumulator = 0;
+    }
+
+    return {
+        initRace,
+        start,
+        update,
+
+        playerPitCall,
+        setDriverMode,
+        activateOvertakeBoost,
+
+        setSpeed,
+        pause,
+        resume,
+        togglePause,
+        skipToEnd,
+
+        getState,
+        getCars,
+        getCar,
+        getStandings,
+        getCurrentLap,
+        getTotalLaps,
+        getStatus,
+        getWeather,
+        getSpeed,
+        getMaxPitStops,
+        getPlayerCars,
+        getLocalPlayerCars,
+        getRecentEvents,
+        isFinished,
+        isCurrentlyPaused,
+
+        destroy
+    };
+})();

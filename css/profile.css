@@ -1,0 +1,868 @@
+/* ============================================
+   VELOCITY — VIP PROFILE SCREEN STYLES (REMODELED)
+   Artistic Glassmorphic & Holographic Super License,
+   Elite Trophy Cabinet, Cybernetic Metrics, Career Timeline
+   ============================================ */
+
+/* --- PROFILE CONTAINER --- */
+.profile-container {
+    width: 100%;
+    height: 100%;
+    padding: var(--space-2xl);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2xl);
+    background: 
+        radial-gradient(circle at 15% 25%, rgba(0, 128, 255, 0.08) 0%, transparent 55%),
+        radial-gradient(circle at 85% 75%, rgba(255, 215, 0, 0.06) 0%, transparent 50%),
+        var(--black);
+    position: relative;
+    overflow-y: auto;
+    overflow-x: hidden;
+}
+
+@media (max-width: 700px) {
+    .profile-container { padding: var(--space-xl); }
+}
+
+/* --- HOLOGRAPHIC VIP SUPER LICENSE HEADER --- */
+.profile-vip-license {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2xl);
+    padding: var(--space-2xl);
+    background: linear-gradient(135deg, rgba(20,20,25,0.85), rgba(10,10,14,0.95));
+    border: 2px solid rgba(0, 128, 255, 0.4);
+    border-radius: var(--radius-xl);
+    box-shadow: 
+        0 12px 40px rgba(0, 0, 0, 0.8),
+        inset 0 0 30px rgba(0, 128, 255, 0.15),
+        0 0 25px rgba(0, 128, 255, 0.25);
+    position: relative;
+    overflow: hidden;
+    backdrop-filter: blur(15px);
+    transition: all var(--transition-base);
+    margin-top: 60px !important;
+}
+
+.profile-vip-license:hover {
+    border-color: #0080FF;
+    box-shadow: 
+        0 15px 50px rgba(0, 0, 0, 0.9),
+        inset 0 0 40px rgba(0, 128, 255, 0.25),
+        0 0 40px rgba(0, 128, 255, 0.4);
+    transform: translateY(-2px);
+}
+
+@media (max-width: 850px) {
+    .profile-vip-license { flex-direction: column; text-align: center; gap: var(--space-xl); }
+}
+
+/* Holographic Security Overlay Seal */
+.profile-vip-license::before {
+    content: '';
+    position: absolute;
+    top: -50%; left: -50%;
+    width: 200%; height: 200%;
+    background: linear-gradient(
+        45deg,
+        transparent 35%,
+        rgba(255, 255, 255, 0.05) 45%,
+        rgba(0, 128, 255, 0.1) 50%,
+        rgba(255, 255, 255, 0.05) 55%,
+        transparent 65%
+    );
+    transform: rotate(25deg);
+    animation: holographic-sweep 12s infinite linear;
+    pointer-events: none;
+}
+
+@keyframes holographic-sweep {
+    from { transform: rotate(25deg) translateY(-80%); }
+    to { transform: rotate(25deg) translateY(80%); }
+}
+
+/* Security Barcode & Esport Stamp */
+.license-security-stamp {
+    position: absolute;
+    top: 20px;
+    right: 24px;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    pointer-events: none;
+}
+
+@media (max-width: 850px) {
+    .license-security-stamp { display: none; }
+}
+
+.security-barcode {
+    font-family: 'Libre Barcode 39', 'Orbitron', monospace;
+    font-size: 36px;
+    letter-spacing: 2px;
+    color: rgba(0, 128, 255, 0.7);
+    line-height: 0.8;
+    text-shadow: 0 0 10px rgba(0, 128, 255, 0.4);
+}
+
+.security-serial {
+    font-family: 'Orbitron', monospace;
+    font-size: 9px;
+    font-weight: 900;
+    color: var(--yellow);
+    letter-spacing: 4px;
+    margin-top: 4px;
+    text-shadow: 0 0 8px rgba(255, 215, 0, 0.5);
+}
+
+/* --- HELMET / AVATAR DOCK --- */
+.license-avatar-dock {
+    width: 140px;
+    height: 140px;
+    position: relative;
+    flex-shrink: 0;
+    cursor: pointer;
+}
+
+.avatar-hexagon-frame {
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+    background: radial-gradient(circle at 35% 35%, #22222a, #111115, #08080a);
+    border: 3px solid #0080FF;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 64px;
+    box-shadow: 
+        0 0 30px rgba(0, 128, 255, 0.5),
+        inset 0 0 25px rgba(0, 128, 255, 0.3);
+    transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+    position: relative;
+    overflow: hidden;
+}
+
+.license-avatar-dock:hover .avatar-hexagon-frame {
+    border-color: #FFD700;
+    box-shadow: 
+        0 0 45px #FFD700,
+        inset 0 0 35px rgba(255, 215, 0, 0.4);
+    transform: scale(1.08) rotate(5deg);
+}
+
+.avatar-edit-overlay {
+    position: absolute;
+    bottom: -30px;
+    left: 0; width: 100%;
+    padding: 6px 0;
+    background: rgba(0, 128, 255, 0.85);
+    color: #FFFFFF;
+    font-family: 'Orbitron', sans-serif;
+    font-size: 10px;
+    font-weight: 900;
+    text-align: center;
+    letter-spacing: 2px;
+    transition: all 0.3s ease;
+}
+
+.license-avatar-dock:hover .avatar-edit-overlay {
+    bottom: 0;
+}
+
+/* --- VIP PLAYER DATA --- */
+.license-player-data {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    z-index: 2;
+}
+
+.player-title-badge {
+    align-self: flex-start;
+    padding: 4px 12px;
+    background: rgba(255, 215, 0, 0.15);
+    border: 1px solid #FFD700;
+    border-radius: 4px;
+    font-family: 'Orbitron', sans-serif;
+    font-size: 10px;
+    font-weight: 900;
+    color: #FFD700;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+    box-shadow: 0 0 15px rgba(255, 215, 0, 0.3);
+}
+
+@media (max-width: 850px) {
+    .player-title-badge { align-self: center; }
+}
+
+.player-username {
+    font-family: 'Orbitron', sans-serif;
+    font-weight: 900;
+    font-size: 38px;
+    color: var(--white);
+    letter-spacing: 6px;
+    text-transform: uppercase;
+    text-shadow: 0 0 25px rgba(255, 255, 255, 0.4), 0 2px 4px rgba(0,0,0,0.9);
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+@media (max-width: 850px) {
+    .player-username { font-size: 28px; justify-content: center; flex-wrap: wrap; gap: 8px; }
+}
+
+.edit-license-btn {
+    font-size: 14px;
+    padding: 6px 14px;
+    background: rgba(0, 128, 255, 0.15);
+    border: 1px solid #0080FF;
+    border-radius: 6px;
+    color: #0080FF;
+    font-family: 'Orbitron', sans-serif;
+    font-weight: 900;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    letter-spacing: 2px;
+}
+
+.edit-license-btn:hover {
+    background: #0080FF;
+    color: #FFFFFF;
+    box-shadow: 0 0 20px #0080FF;
+    transform: scale(1.05);
+}
+
+/* LEVEL & XP GAUGE */
+.license-xp-dock {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    max-width: 480px;
+}
+
+@media (max-width: 850px) {
+    .license-xp-dock { justify-content: center; margin: 0 auto; flex-wrap: wrap; gap: 12px; }
+}
+
+.level-emblem {
+    font-family: 'Orbitron', sans-serif;
+    font-weight: 900;
+    font-size: 20px;
+    color: #FFFFFF;
+    background: linear-gradient(135deg, #0080FF, #00FF41);
+    padding: 8px 16px;
+    border-radius: 8px;
+    box-shadow: 0 0 20px rgba(0, 128, 255, 0.6);
+    text-shadow: 0 2px 4px rgba(0,0,0,0.8);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.xp-progress-system {
+    flex: 1;
+    min-width: 220px;
+}
+
+.xp-numbers {
+    display: flex;
+    justify-content: space-between;
+    font-family: 'Rajdhani', sans-serif;
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--gray-300);
+    margin-bottom: 6px;
+    letter-spacing: 2px;
+}
+
+.xp-track {
+    height: 10px;
+    background: rgba(0, 0, 0, 0.6);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 5px;
+    overflow: hidden;
+    padding: 1px;
+    box-shadow: inset 0 2px 5px rgba(0,0,0,0.8);
+}
+
+.xp-laser-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #0080FF, #00FF41, #FFD700);
+    background-size: 200% 100%;
+    border-radius: 3px;
+    animation: xp-pulse 3s infinite linear;
+    transition: width 1s cubic-bezier(0.16, 1, 0.3, 1);
+    box-shadow: 0 0 15px #00FF41;
+}
+
+@keyframes xp-pulse {
+    0% { background-position: 0% 0%; }
+    100% { background-position: 200% 0%; }
+}
+
+/* --- EXECUTIVE 2x2 NAVIGATION CONSOLE BOX --- */
+.vip-nav-console-box {
+    background: linear-gradient(135deg, rgba(20,20,30,0.85), rgba(8,8,14,0.95));
+    border: 2px solid #0080FF;
+    border-radius: var(--radius-xl);
+    padding: 24px;
+    box-shadow: 0 12px 40px rgba(0,0,0,0.9), 0 0 30px rgba(0,128,255,0.2), inset 0 0 25px rgba(0,128,255,0.15);
+    margin: 12px 0 var(--space-xl) 0;
+    backdrop-filter: blur(15px);
+}
+
+.console-box-title {
+    font-family: 'Orbitron', sans-serif;
+    font-weight: 900;
+    font-size: 14px;
+    color: #FFD700;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    margin-bottom: 20px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    text-shadow: 0 0 15px rgba(255,215,0,0.5);
+    border-bottom: 2px solid rgba(255,215,0,0.3);
+    padding-bottom: 10px;
+}
+
+.console-buttons-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 20px;
+}
+
+@media (max-width: 850px) { .console-buttons-grid { grid-template-columns: 1fr; } }
+
+.console-tab-btn {
+    background: linear-gradient(135deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01));
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 14px;
+    padding: 20px;
+    text-align: left;
+    cursor: pointer;
+    transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.console-tab-btn .btn-head {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.console-tab-btn .c-icon {
+    font-size: 28px;
+    line-height: 1;
+}
+
+.console-tab-btn .c-title {
+    font-family: 'Orbitron', sans-serif;
+    font-weight: 900;
+    font-size: 16px;
+    color: var(--white);
+    letter-spacing: 2px;
+    text-transform: uppercase;
+}
+
+.console-tab-btn .c-sub {
+    font-family: 'Rajdhani', sans-serif;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--gray-400);
+    line-height: 1.4;
+    padding-left: 40px;
+}
+
+.console-tab-btn:hover {
+    background: rgba(0, 128, 255, 0.15);
+    border-color: #0080FF;
+    transform: translateY(-4px);
+    box-shadow: 0 8px 30px rgba(0,128,255,0.3);
+}
+
+.console-tab-btn:hover .c-title { color: #FFFFFF; text-shadow: 0 0 12px rgba(0,128,255,0.6); }
+.console-tab-btn:hover .c-sub { color: var(--gray-200); }
+
+.console-tab-btn.active {
+    background: linear-gradient(135deg, rgba(0, 255, 65, 0.25), rgba(0, 128, 255, 0.2));
+    border: 2px solid #00FF41;
+    box-shadow: 0 0 30px rgba(0,255,65,0.4);
+    transform: translateY(-2px);
+}
+
+.console-tab-btn.active .c-title { color: #00FF41; text-shadow: 0 0 15px #00FF41; }
+.console-tab-btn.active .c-sub { color: #FFFFFF; font-weight: 700; }
+
+/* --- CYBERNETIC METRICS GRID (Overview Tab) --- */
+.metrics-master-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 20px;
+}
+
+@media (max-width: 1300px) { .metrics-master-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 700px) { .metrics-master-grid { grid-template-columns: 1fr; } }
+
+.cyber-metric-card {
+    background: linear-gradient(135deg, rgba(25,25,32,0.65), rgba(12,12,16,0.85));
+    border: 1px solid rgba(0, 128, 255, 0.3);
+    border-radius: 12px;
+    padding: 24px;
+    position: relative;
+    overflow: hidden;
+    backdrop-filter: blur(10px);
+    transition: all 0.3s ease;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+}
+
+.cyber-metric-card:hover {
+    border-color: #00FF41;
+    box-shadow: 0 10px 35px rgba(0, 255, 65, 0.25);
+    transform: translateY(-5px);
+}
+
+.cyber-metric-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; width: 4px; height: 100%;
+    background: #0080FF;
+    transition: all 0.3s ease;
+}
+
+.cyber-metric-card:hover::before {
+    background: #00FF41;
+    box-shadow: 0 0 15px #00FF41;
+}
+
+.metric-label {
+    font-family: 'Rajdhani', sans-serif;
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--gray-400);
+    text-transform: uppercase;
+    letter-spacing: 3px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.metric-value {
+    font-family: 'Orbitron', sans-serif;
+    font-weight: 900;
+    font-size: 36px;
+    color: var(--white);
+    text-shadow: 0 0 20px rgba(0, 128, 255, 0.5);
+    letter-spacing: 2px;
+}
+
+.cyber-metric-card:hover .metric-value {
+    color: #00FF41;
+    text-shadow: 0 0 25px #00FF41;
+}
+
+/* SKILL APTITUDE RADAR SECTION */
+.aptitude-showcase {
+    background: linear-gradient(135deg, rgba(20,20,25,0.7), rgba(10,10,14,0.9));
+    border: 2px solid rgba(255, 215, 0, 0.35);
+    border-radius: var(--radius-xl);
+    padding: var(--space-2xl);
+    margin-top: var(--space-xl);
+    box-shadow: 0 10px 30px rgba(0,0,0,0.8);
+}
+
+.aptitude-title {
+    font-family: 'Orbitron', sans-serif;
+    font-weight: 900;
+    font-size: 20px;
+    color: #FFD700;
+    letter-spacing: 4px;
+    text-transform: uppercase;
+    margin-bottom: 24px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.aptitude-bars-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 24px;
+}
+
+@media (max-width: 850px) { .aptitude-bars-grid { grid-template-columns: 1fr; } }
+
+.aptitude-bar-item {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.aptitude-item-header {
+    display: flex;
+    justify-content: space-between;
+    font-family: 'Rajdhani', sans-serif;
+    font-size: 15px;
+    font-weight: 800;
+    color: var(--white);
+    letter-spacing: 2px;
+    text-transform: uppercase;
+}
+
+.aptitude-item-track {
+    height: 12px;
+    background: rgba(0, 0, 0, 0.7);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 6px;
+    overflow: hidden;
+    padding: 2px;
+}
+
+.aptitude-item-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #FFD700, #00FF41);
+    border-radius: 4px;
+    box-shadow: 0 0 15px rgba(255, 215, 0, 0.6);
+    transition: width 1s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* --- THE Elite TROPHY CABINET (Trophies Tab) --- */
+.trophy-room-showcase {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2xl);
+}
+
+.trophy-tier-title {
+    font-family: 'Orbitron', sans-serif;
+    font-weight: 900;
+    font-size: 22px;
+    color: var(--white);
+    letter-spacing: 5px;
+    text-transform: uppercase;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    border-bottom: 2px solid rgba(255, 215, 0, 0.4);
+    padding-bottom: 12px;
+}
+
+.trophy-cards-grid {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 20px;
+}
+
+@media (max-width: 1400px) { .trophy-cards-grid { grid-template-columns: repeat(3, 1fr); } }
+@media (max-width: 900px) { .trophy-cards-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 600px) { .trophy-cards-grid { grid-template-columns: 1fr; } }
+
+.master-trophy-card {
+    background: linear-gradient(135deg, rgba(30,30,40,0.7), rgba(15,15,22,0.9));
+    border: 2px solid rgba(255, 215, 0, 0.4);
+    border-radius: 16px;
+    padding: 24px 16px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+    position: relative;
+    overflow: hidden;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.8);
+}
+
+.master-trophy-card:hover {
+    border-color: #FFD700;
+    box-shadow: 
+        0 15px 45px rgba(255, 215, 0, 0.35),
+        inset 0 0 25px rgba(255, 215, 0, 0.2);
+    transform: translateY(-8px) scale(1.03);
+}
+
+.master-trophy-card.locked {
+    border-color: rgba(255, 255, 255, 0.1);
+    background: rgba(15,15,20,0.5);
+    opacity: 0.5;
+    filter: grayscale(90%);
+}
+
+.master-trophy-card.locked:hover {
+    opacity: 0.9; filter: grayscale(40%);
+    border-color: rgba(0, 128, 255, 0.5);
+}
+
+.trophy-hologram-dock {
+    width: 90px;
+    height: 90px;
+    border-radius: 50%;
+    background: radial-gradient(circle at center, rgba(255,215,0,0.2), transparent 70%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 54px;
+    margin-bottom: 16px;
+    transition: all 0.4s ease;
+    filter: drop-shadow(0 0 15px rgba(255,215,0,0.8));
+}
+
+.master-trophy-card:hover .trophy-hologram-dock {
+    transform: scale(1.18) rotateY(180deg);
+}
+
+.trophy-title {
+    font-family: 'Orbitron', sans-serif;
+    font-weight: 900;
+    font-size: 15px;
+    color: var(--white);
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+    line-height: 1.3;
+}
+
+.trophy-desc {
+    font-family: 'Rajdhani', sans-serif;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--gray-400);
+    line-height: 1.4;
+    margin-bottom: 12px;
+}
+
+.trophy-reward-badge {
+    padding: 4px 12px;
+    background: rgba(0, 255, 65, 0.15);
+    border: 1px solid #00FF41;
+    border-radius: 20px;
+    color: #00FF41;
+    font-family: 'Orbitron', sans-serif;
+    font-size: 10px;
+    font-weight: 900;
+    letter-spacing: 2px;
+    margin-top: auto;
+    box-shadow: 0 0 10px rgba(0, 255, 65, 0.4);
+}
+
+/* --- INTERACTIVE LEGACY TIMELINE (History Tab) --- */
+.timeline-master-container {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.timeline-card-item {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2xl);
+    padding: var(--space-2xl);
+    background: linear-gradient(135deg, rgba(25,25,35,0.75), rgba(12,12,18,0.95));
+    border: 2px solid var(--border-medium);
+    border-radius: var(--radius-xl);
+    box-shadow: 0 10px 30px rgba(0,0,0,0.8);
+    transition: all 0.3s ease;
+    position: relative;
+    overflow: hidden;
+}
+
+.timeline-card-item:hover {
+    border-color: #FFD700;
+    transform: translateX(8px);
+    box-shadow: 0 12px 40px rgba(255,215,0,0.25);
+}
+
+@media (max-width: 850px) {
+    .timeline-card-item { flex-direction: column; text-align: center; gap: var(--space-xl); }
+}
+
+.season-badge-dock {
+    width: 100px;
+    height: 100px;
+    border-radius: 16px;
+    background: linear-gradient(135deg, #0080FF, #AA33FF);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: #FFFFFF;
+    font-family: 'Orbitron', sans-serif;
+    box-shadow: 0 0 25px rgba(0, 128, 255, 0.5);
+    flex-shrink: 0;
+}
+
+.season-badge-dock .s-label { font-size: 12px; font-weight: 700; letter-spacing: 2px; }
+.season-badge-dock .s-num { font-size: 38px; font-weight: 900; line-height: 0.9; }
+
+.timeline-info-dock {
+    flex: 1;
+}
+
+.timeline-constructor-title {
+    font-family: 'Orbitron', sans-serif;
+    font-weight: 900;
+    font-size: 26px;
+    color: var(--white);
+    letter-spacing: 4px;
+    text-transform: uppercase;
+    margin-bottom: 6px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+@media (max-width: 850px) { .timeline-constructor-title { justify-content: center; flex-wrap: wrap; } }
+
+.timeline-stats-row {
+    display: flex;
+    gap: 24px;
+    font-family: 'Rajdhani', sans-serif;
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--gray-300);
+    letter-spacing: 2px;
+    margin-top: 8px;
+}
+
+@media (max-width: 850px) { .timeline-stats-row { justify-content: center; flex-wrap: wrap; gap: 12px; } }
+
+.timeline-trophy-emblem {
+    padding: 12px 28px;
+    border-radius: var(--radius-lg);
+    font-family: 'Orbitron', sans-serif;
+    font-weight: 900;
+    font-size: 22px;
+    letter-spacing: 4px;
+    text-transform: uppercase;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.timeline-trophy-emblem.champion {
+    background: linear-gradient(135deg, rgba(255,215,0,0.25), rgba(255,215,0,0.1));
+    border: 2px solid #FFD700;
+    color: #FFD700;
+    box-shadow: 0 0 30px rgba(255,215,0,0.4);
+    animation: pulse-glow 2s infinite ease-in-out;
+}
+
+.timeline-trophy-emblem.podium {
+    background: linear-gradient(135deg, rgba(0,255,65,0.2), rgba(0,255,65,0.08));
+    border: 2px solid #00FF41;
+    color: #00FF41;
+    box-shadow: 0 0 20px rgba(0,255,65,0.3);
+}
+
+.timeline-trophy-emblem.standard {
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.15);
+    color: var(--gray-400);
+}
+
+/* --- STORAGE DATA TAB (Data Tab) --- */
+.storage-master-card {
+    background: linear-gradient(135deg, rgba(25,25,35,0.8), rgba(12,12,18,0.95));
+    border: 2px solid #0080FF;
+    border-radius: var(--radius-xl);
+    padding: var(--space-3xl);
+    max-width: 750px;
+    margin: 0 auto;
+    box-shadow: 0 12px 40px rgba(0,128,255,0.25);
+}
+
+.storage-header-flex {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+}
+
+.storage-title {
+    font-family: 'Orbitron', sans-serif;
+    font-weight: 900;
+    font-size: 24px;
+    color: var(--white);
+    letter-spacing: 4px;
+    text-transform: uppercase;
+}
+
+.storage-figures {
+    font-family: 'Orbitron', sans-serif;
+    font-weight: 900;
+    font-size: 20px;
+    color: #00FF41;
+    letter-spacing: 2px;
+}
+
+.storage-bar-track {
+    height: 16px;
+    background: rgba(0,0,0,0.8);
+    border: 2px solid rgba(255,255,255,0.2);
+    border-radius: 8px;
+    overflow: hidden;
+    padding: 2px;
+    margin-bottom: 32px;
+}
+
+.storage-bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #0080FF, #00FF41);
+    border-radius: 4px;
+    box-shadow: 0 0 20px #00FF41;
+    transition: width 1s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.data-actions-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 20px;
+}
+
+@media (max-width: 700px) { .data-actions-grid { grid-template-columns: 1fr; } }
+
+.data-action-btn {
+    padding: 16px;
+    font-family: 'Orbitron', sans-serif;
+    font-weight: 900;
+    font-size: 13px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    border-radius: 12px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    text-align: center;
+}
+
+.data-action-btn.export {
+    background: rgba(0, 128, 255, 0.15);
+    border: 2px solid #0080FF; color: #0080FF;
+}
+.data-action-btn.export:hover { background: #0080FF; color: #FFFFFF; box-shadow: 0 0 25px #0080FF; transform: translateY(-3px); }
+
+.data-action-btn.import {
+    background: rgba(0, 255, 65, 0.15);
+    border: 2px solid #00FF41; color: #00FF41;
+}
+.data-action-btn.import:hover { background: #00FF41; color: #FFFFFF; box-shadow: 0 0 25px #00FF41; transform: translateY(-3px); }
+
+.data-action-btn.delete {
+    background: rgba(255, 0, 51, 0.15);
+    border: 2px solid #FF0033; color: #FF0033;
+}
+.data-action-btn.delete:hover { background: #FF0033; color: #FFFFFF; box-shadow: 0 0 25px #FF0033; transform: translateY(-3px); }

@@ -1,0 +1,408 @@
+/* ============================================
+   VELOCITY — HOME SCREEN STYLES
+   Authentic Pirelli F1 Tire, Fly-Through Center Zoom,
+   Tracks background, Waves
+   ============================================ */
+
+/* --- TRACK CANVASES --- */
+#tracks-canvas,
+#waves-canvas {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 1;
+}
+
+#waves-canvas {
+    z-index: 2;
+}
+
+/* --- HOME HEADER --- */
+#home-header {
+    position: absolute;
+    top: 30px;
+    left: 40px;
+    z-index: 50;
+}
+
+.game-title {
+    display: flex;
+    flex-direction: column;
+}
+
+.title-main {
+    font-family: 'Orbitron', sans-serif;
+    font-weight: 900;
+    font-size: var(--text-5xl);
+    letter-spacing: 6px;
+    color: var(--white);
+    font-style: italic;
+    line-height: 1;
+    text-shadow: 0 0 40px rgba(255, 0, 51, 0.3);
+    position: relative;
+}
+
+.title-main::after {
+    content: '';
+    position: absolute;
+    bottom: -2px;
+    left: 0;
+    width: 60%;
+    height: 3px;
+    background: var(--red);
+    box-shadow: 0 0 10px var(--red);
+}
+
+.title-sub {
+    font-family: 'Rajdhani', sans-serif;
+    font-weight: 400;
+    font-size: var(--text-sm);
+    letter-spacing: 8px;
+    color: var(--gray-400);
+    margin-top: var(--space-sm);
+}
+
+/* --- HOME FOOTER --- */
+#home-footer {
+    position: absolute;
+    bottom: 30px;
+    left: 0;
+    width: 100%;
+    padding: 0 40px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    z-index: 50;
+}
+
+.version {
+    font-family: 'Rajdhani', sans-serif;
+    font-size: var(--text-xs);
+    color: var(--gray-600);
+    letter-spacing: 2px;
+}
+
+.tagline {
+    font-family: 'Rajdhani', sans-serif;
+    font-size: var(--text-sm);
+    letter-spacing: 10px;
+    color: var(--gray-500);
+    text-transform: uppercase;
+}
+
+.home-controls {
+    display: flex;
+    gap: var(--space-md);
+}
+
+.icon-btn {
+    width: 40px;
+    height: 40px;
+    border-radius: var(--radius-round);
+    background: var(--surface-1);
+    border: 1px solid var(--border-subtle);
+    font-size: 18px;
+    cursor: pointer;
+    transition: all var(--transition-base);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--gray-400);
+}
+
+.icon-btn:hover {
+    background: var(--surface-3);
+    border-color: var(--gray-400);
+    transform: scale(1.1);
+}
+
+.icon-btn.active {
+    border-color: var(--green);
+    color: var(--green);
+}
+
+/* --- PIRELLI F1 TIRE WHEEL & FLY-THROUGH ZOOM --- */
+#tire-wheel-container {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 20;
+    width: 520px;
+    height: 520px;
+    perspective: 2000px;
+}
+
+#tire-wheel {
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+    position: relative;
+    background: #111113; /* Authentic slick black rubber carcass */
+    border: 14px solid #FFD700; /* Authentic Pirelli P-Zero Medium Yellow Formula 1 Compound Stripe */
+    box-shadow: 
+        0 0 60px rgba(0, 0, 0, 0.95),
+        inset 0 0 45px rgba(0, 0, 0, 0.85),
+        0 0 30px rgba(255, 215, 0, 0.35);
+    animation: tire-spin 40s linear infinite;
+    cursor: pointer;
+    transform-style: preserve-3d;
+    transition: transform 1.2s cubic-bezier(0.8, 0, 0.2, 1), opacity 1.2s cubic-bezier(0.8, 0, 0.2, 1), filter 1.2s ease;
+}
+
+#tire-wheel.paused {
+    animation-play-state: paused;
+}
+
+@keyframes tire-spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+/* Authentic F1 Pirelli Sidewall Texture Markings */
+#tire-wheel::before {
+    content: '';
+    position: absolute;
+    top: 12px;
+    left: 12px;
+    width: calc(100% - 24px);
+    height: calc(100% - 24px);
+    border-radius: 50%;
+    background: repeating-conic-gradient(
+        from 0deg,
+        transparent 0deg 3deg,
+        rgba(255, 255, 255, 0.03) 3deg 6deg
+    );
+    border: 2px dashed rgba(255, 215, 0, 0.45);
+    z-index: 5;
+    pointer-events: none;
+}
+
+/* Outer tire sidewall lip */
+#tire-wheel::after {
+    content: '';
+    position: absolute;
+    top: -8px;
+    left: -8px;
+    width: calc(100% + 16px);
+    height: calc(100% + 16px);
+    border-radius: 50%;
+    border: 2px solid rgba(255, 255, 255, 0.06);
+    box-shadow: 0 0 35px rgba(0, 0, 0, 0.9);
+    pointer-events: none;
+}
+
+/* --- TIRE QUADRANTS (Embedded Interactive F1 High-Tech Structural Sectors) --- */
+.tire-quadrant {
+    position: absolute;
+    width: 50%;
+    height: 50%;
+    overflow: hidden;
+    cursor: pointer;
+    transition: all var(--transition-base);
+    backdrop-filter: blur(4px);
+}
+
+/* Top-left (Single Player - Green) */
+.tire-quadrant:nth-child(1) {
+    top: 0;
+    left: 0;
+    border-radius: 100% 0 0 0;
+    background: radial-gradient(circle at 100% 100%, #1c1c1f 35%, #082408 100%);
+    border: 3px solid rgba(0, 255, 65, 0.35);
+    border-right: none;
+    border-bottom: none;
+}
+
+/* Top-right (Profile - Blue) */
+.tire-quadrant:nth-child(2) {
+    top: 0;
+    right: 0;
+    border-radius: 0 100% 0 0;
+    background: radial-gradient(circle at 0% 100%, #1c1c1f 35%, #080824 100%);
+    border: 3px solid rgba(0, 128, 255, 0.35);
+    border-left: none;
+    border-bottom: none;
+}
+
+/* Bottom-left (Multiplayer - Red) */
+.tire-quadrant:nth-child(3) {
+    bottom: 0;
+    left: 0;
+    border-radius: 0 0 0 100%;
+    background: radial-gradient(circle at 100% 0%, #1c1c1f 35%, #240808 100%);
+    border: 3px solid rgba(255, 0, 51, 0.35);
+    border-right: none;
+    border-top: none;
+}
+
+/* Bottom-right (How to Play - Yellow) */
+.tire-quadrant:nth-child(4) {
+    bottom: 0;
+    right: 0;
+    border-radius: 0 0 100% 0;
+    background: radial-gradient(circle at 0% 0%, #1c1c1f 35%, #242408 100%);
+    border: 3px solid rgba(255, 215, 0, 0.35);
+    border-left: none;
+    border-top: none;
+}
+
+.tire-quadrant:hover {
+    filter: brightness(2.0);
+    transform: scale(1.02);
+    z-index: 10;
+}
+
+.tire-quadrant:nth-child(1):hover {
+    box-shadow: inset 0 0 70px rgba(0, 255, 65, 0.25), 0 0 50px rgba(0, 255, 65, 0.2);
+    border-color: rgba(0, 255, 65, 0.85);
+}
+
+.tire-quadrant:nth-child(2):hover {
+    box-shadow: inset 0 0 70px rgba(0, 128, 255, 0.25), 0 0 50px rgba(0, 128, 255, 0.2);
+    border-color: rgba(0, 128, 255, 0.85);
+}
+
+.tire-quadrant:nth-child(3):hover {
+    box-shadow: inset 0 0 70px rgba(255, 0, 51, 0.25), 0 0 50px rgba(255, 0, 51, 0.2);
+    border-color: rgba(255, 0, 51, 0.85);
+}
+
+.tire-quadrant:nth-child(4):hover {
+    box-shadow: inset 0 0 70px rgba(255, 215, 0, 0.25), 0 0 50px rgba(255, 215, 0, 0.2);
+    border-color: rgba(255, 215, 0, 0.85);
+}
+
+/* --- TIRE LABELS (Engraved Pirelli F1 Precision Typography) --- */
+.tire-label {
+    position: absolute;
+    font-family: 'Orbitron', sans-serif;
+    font-weight: 900;
+    font-size: 16px;
+    letter-spacing: 4px;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.75);
+    text-shadow:
+        0 2px 2px rgba(0, 0, 0, 0.95),
+        0 -1px 0 rgba(255, 255, 255, 0.25);
+    pointer-events: none;
+    white-space: nowrap;
+    transform-origin: center center;
+}
+
+/* Quadrant 1 (Single Player — Top-Left): True Trigonometric Centering */
+.tire-quadrant:nth-child(1) .tire-label {
+    bottom: 45.2%;
+    right: 45.2%;
+    transform: translate(50%, 50%) rotate(-45deg);
+    color: rgba(0, 255, 65, 0.9);
+}
+
+/* Quadrant 2 (Profile — Top-Right): True Trigonometric Centering */
+.tire-quadrant:nth-child(2) .tire-label {
+    bottom: 45.2%;
+    left: 45.2%;
+    transform: translate(-50%, 50%) rotate(45deg);
+    color: rgba(0, 128, 255, 0.9);
+}
+
+/* Quadrant 3 (Multiplayer — Bottom-Left): True Trigonometric Centering */
+.tire-quadrant:nth-child(3) .tire-label {
+    top: 45.2%;
+    right: 45.2%;
+    transform: translate(50%, -50%) rotate(45deg);
+    color: rgba(255, 0, 51, 0.9);
+}
+
+/* Quadrant 4 (How to Play — Bottom-Right): True Trigonometric Centering */
+.tire-quadrant:nth-child(4) .tire-label {
+    top: 45.2%;
+    left: 45.2%;
+    transform: translate(-50%, -50%) rotate(-45deg);
+    color: rgba(255, 215, 0, 0.9);
+}
+
+.tire-quadrant:hover .tire-label {
+    color: rgba(255, 255, 255, 1.0);
+    text-shadow:
+        0 0 25px currentColor,
+        0 0 50px currentColor;
+}
+
+/* --- BBS FORGED METALLIC F1 RIM (Center Hub) --- */
+.tire-rim {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 156px;
+    height: 156px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 35% 35%, #2c2c31, #18181b, #0a0a0c);
+    border: 6px solid #3f3f46;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 30;
+    box-shadow:
+        0 0 35px rgba(0, 0, 0, 0.95),
+        inset 0 0 18px rgba(255, 255, 255, 0.2),
+        inset 0 0 30px rgba(0, 0, 0, 0.9);
+    animation: tire-spin-reverse 40s linear infinite;
+    transition: all 0.8s cubic-bezier(0.8, 0, 0.2, 1);
+}
+
+/* Center metallic axle nut */
+.tire-rim::before {
+    content: '';
+    position: absolute;
+    width: 76px;
+    height: 76px;
+    border-radius: 50%;
+    border: 2px solid rgba(255, 215, 0, 0.5);
+    box-shadow: 0 0 20px rgba(255, 215, 0, 0.25);
+    pointer-events: none;
+}
+
+@keyframes tire-spin-reverse {
+    from { transform: translate(-50%, -50%) rotate(0deg); }
+    to { transform: translate(-50%, -50%) rotate(-360deg); }
+}
+
+#tire-wheel.paused .tire-rim {
+    animation-play-state: paused;
+}
+
+/* Polished Titanium Logo V */
+.rim-logo {
+    font-family: 'Orbitron', sans-serif;
+    font-weight: 900;
+    font-size: 54px;
+    color: var(--white);
+    text-shadow: 
+        0 0 20px rgba(255, 255, 255, 0.6),
+        0 2px 6px rgba(0, 0, 0, 0.95);
+    transition: all 0.6s ease;
+}
+
+/* --- CINEMATIC FLY-THROUGH ZOOM INTO TIRE CENTER --- */
+#tire-wheel.cinematic-zoom-into-center {
+    transform: scale(38) translateZ(180px);
+    opacity: 0;
+    filter: blur(3px);
+}
+
+#tire-wheel.cinematic-zoom-into-center .tire-rim {
+    background: transparent !important;
+    border-color: transparent !important;
+    box-shadow: none !important;
+    transform: translate(-50%, -50%) scale(6);
+    opacity: 0;
+}
+
+#tire-wheel.cinematic-zoom-into-center .rim-logo {
+    opacity: 0;
+    transform: scale(8);
+}
