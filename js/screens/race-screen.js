@@ -582,80 +582,85 @@ const RaceScreen = (() => {
     function handleRaceComplete(data) {
         if (!data || !data.results) return;
 
-        const career = StateManager.get('career');
-        if (career && StateManager.get('race')?.isCareerRace) {
-            recordRaceForCareer(data.results);
+        try {
+            const career = typeof StateManager?.get === 'function' ? StateManager.get('career') : null;
+            if (career && StateManager.get('race')?.isCareerRace) {
+                try { recordRaceForCareer(data.results); } catch(err) { console.error('[RaceScreen] recordRaceForCareer error:', err); }
+            }
+
+            try { updatePlayerStats(data.results); } catch(err) { console.error('[RaceScreen] updatePlayerStats error:', err); }
+
+            if (typeof StateManager?.set === 'function') StateManager.set('raceResults', data.results);
+        } catch (err) {
+            console.error('[RaceScreen] Indestructible handleRaceComplete error:', err);
+            if (typeof StateManager?.set === 'function') StateManager.set('raceResults', data.results || []);
         }
 
-        updatePlayerStats(data.results);
-
-        StateManager.set('raceResults', data.results);
         setTimeout(() => {
-            EventBus.emit('nav:go', { screen: 'results', color: '#00FF41' });
+            if (typeof EventBus !== 'undefined') EventBus.emit('nav:go', { screen: 'results', color: '#FFD700' });
         }, 500);
     }
 
     function recordRaceForCareer(results) {
-        const career = StateManager.get('career');
-        if (!career) return;
+        const career = typeof StateManager?.get === 'function' ? StateManager.get('career') : null;
+        if (!career || !Array.isArray(results)) return;
 
-        const playerResults = results.filter(r => r.team.id === career.team.id);
-        const bestPlayer = playerResults.sort((a, b) => a.position - b.position)[0];
+        const playerResults = results.filter(r => r && r.team && r.team.id === career.team?.id);
+        const bestPlayer = [...playerResults].sort((a, b) => (a?.position || 99) - (b?.position || 99))[0];
 
         if (!career.raceHistory) career.raceHistory = [];
         career.raceHistory.push({
-            trackId: career.schedule[career.currentRound],
-            round: career.currentRound + 1,
+            trackId: career.schedule?.[career.currentRound || 0],
+            round: (career.currentRound || 0) + 1,
             playerBestPosition: bestPlayer?.position || 99,
-            playerPoints: playerResults.reduce((sum, r) => sum + r.points, 0)
+            playerPoints: playerResults.reduce((sum, r) => sum + (r?.points || 0), 0)
         });
 
-        // Award championship points
         results.forEach(r => {
-            const driverStanding = career.championship.driverStandings.find(d => d.driverId === r.driver.id);
+            if (!r || !r.driver || !r.team) return;
+
+            const driverStanding = career.championship?.driverStandings?.find(d => d.driverId === r.driver.id);
             if (driverStanding) {
-                driverStanding.points += r.points + (r.fastestLapBonus || 0);
-                if (r.position === 1) driverStanding.wins++;
-                if (r.position <= 3) driverStanding.podiums++;
-                if (r.position < driverStanding.bestFinish) driverStanding.bestFinish = r.position;
+                driverStanding.points += (r.points || 0) + (r.fastestLapBonus || 0);
+                if (r.position === 1) driverStanding.wins = (driverStanding.wins || 0) + 1;
+                if (r.position <= 3) driverStanding.podiums = (driverStanding.podiums || 0) + 1;
+                if (r.position < (driverStanding.bestFinish || 99)) driverStanding.bestFinish = r.position;
             }
 
-            const teamStanding = career.championship.constructorStandings.find(c => c.teamId === r.team.id);
+            const teamStanding = career.championship?.constructorStandings?.find(c => c.teamId === r.team.id);
             if (teamStanding) {
-                teamStanding.points += r.points + (r.fastestLapBonus || 0);
-                if (r.position === 1) teamStanding.wins++;
-                if (r.position <= 3) teamStanding.podiums++;
+                teamStanding.points += (r.points || 0) + (r.fastestLapBonus || 0);
+                if (r.position === 1) teamStanding.wins = (teamStanding.wins || 0) + 1;
+                if (r.position <= 3) teamStanding.podiums = (teamStanding.podiums || 0) + 1;
             }
         });
 
-        // Award R&D points and prize money
-        const playerPoints = playerResults.reduce((sum, r) => sum + r.points, 0);
-        career.rdPoints += 100 + (playerPoints * 10);
-        career.budget += 500000 + (playerPoints * 100000);
+        const playerPoints = playerResults.reduce((sum, r) => sum + (r?.points || 0), 0);
+        career.rdPoints = (career.rdPoints || 0) + 100 + (playerPoints * 10);
+        career.budget = Math.max(0, (career.budget || 0) + 500000 + (playerPoints * 100000));
 
-        // Corporate Corporate Sponsorship Contract Goal Evaluation Matrix (Proposal 2)
         if (career.activeSponsor) {
             const sp = career.activeSponsor;
             let goalMet = false;
 
-            const pRes = [...playerResults].sort((a, b) => a.position - b.position);
-            if (sp.id === 'sp1') { goalMet = pRes.length >= 2 && pRes[0].position <= 10 && pRes[1].position <= 10; }
-            else if (sp.id === 'sp2') { goalMet = pRes.some(x => x.position <= 3); }
-            else if (sp.id === 'sp3') { goalMet = pRes.some(x => x.fastestLapBonus > 0 || x.fastestLap); }
-            else if (sp.id === 'sp4') { goalMet = pRes.length >= 2 && pRes[0].position <= 3 && pRes[1].position <= 3; }
+            const pRes = [...playerResults].sort((a, b) => (a?.position || 99) - (b?.position || 99));
+            if (sp.id === 'sp1') { goalMet = pRes.length >= 2 && pRes[0]?.position <= 10 && pRes[1]?.position <= 10; }
+            else if (sp.id === 'sp2') { goalMet = pRes.some(x => x?.position <= 3); }
+            else if (sp.id === 'sp3') { goalMet = pRes.some(x => x?.fastestLapBonus > 0 || x?.fastestLap); }
+            else if (sp.id === 'sp4') { goalMet = pRes.length >= 2 && pRes[0]?.position <= 3 && pRes[1]?.position <= 3; }
 
             if (goalMet) {
-                career.budget += (sp.payout || 2500000);
+                career.budget += sp.payout || 2500000;
                 career._lastSponsorOutcome = { met: true, name: sp.name, amount: sp.payout };
             } else {
-                career.budget -= (sp.fine || 1000000);
+                career.budget = Math.max(0, career.budget - (sp.fine || 1000000));
                 career._lastSponsorOutcome = { met: false, name: sp.name, amount: sp.fine };
             }
         }
 
-        career.currentRound++;
+        career.currentRound = (career.currentRound || 0) + 1;
         StateManager.set('career', career);
-        StateManager.saveGame();
+        StateManager.saveGame?.();
     }
 
     function updatePlayerStats(results) {
