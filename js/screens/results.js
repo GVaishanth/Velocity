@@ -70,31 +70,41 @@ const ResultsScreen = (() => {
                         </div>
                     ` : ''}
 
-                    <!-- PLAYER SUMMARY -->
+                    <!-- PLAYER PERFORMANCE SUMMARY -->
                     <div class="player-summary">
                         <h2 class="summary-title">YOUR PERFORMANCE</h2>
                         <div class="player-results-grid">
-                            ${playerResults.map(r => `
-                                <div class="player-result-card ${r.position === 1 ? 'winner' : ''} ${r.position <= 3 ? 'podium' : ''}">
-                                    <div class="result-pos">P${r.position || 0}</div>
-                                    <div class="result-info">
-                                        <div class="result-driver">${escapeHTML(r?.driver?.name || 'RACER')}</div>
-                                        <div class="result-detail">
-                                            ${r.status === 'DNF' ? `<span style="color: var(--red)">DNF: ${escapeHTML(r.dnfReason || 'Retired')}</span>` :
-                                              `Best Lap: ${formatLapTimeLocal(r.bestLap)}`}
+                            ${playerResults.map(r => {
+                                if (!r) return '';
+                                const pos = r?.position || 99;
+                                const isDnf = r?.status === 'DNF';
+                                const dName = r?.driver?.name || 'RACER';
+                                const bLap = r?.bestLap ? formatLapTimeLocal(r.bestLap) : '—';
+                                const pts = r?.points || 0;
+                                const flBonus = r?.fastestLapBonus > 0 ? '<div style="color: #AA33FF; font-size: 10px; font-family: Orbitron; font-weight: 900;">+1 FL</div>' : '';
+
+                                return `
+                                    <div class="player-result-card ${pos === 1 ? 'winner' : ''} ${pos <= 3 ? 'podium' : ''}">
+                                        <div class="result-pos">P${pos}</div>
+                                        <div class="result-info">
+                                            <div class="result-driver">${escapeHTML(dName)}</div>
+                                            <div class="result-detail">
+                                                ${isDnf ? `<span style="color: var(--red);">DNF: ${escapeHTML(r.dnfReason || 'Retired')}</span>` :
+                                                  `Best Match Lap: ${bLap}`}
+                                            </div>
+                                        </div>
+                                        <div class="result-points">
+                                            <div class="points-num">${pts}</div>
+                                            <div class="points-label">PTS</div>
+                                            ${flBonus}
                                         </div>
                                     </div>
-                                    <div class="result-points">
-                                        <div class="points-num">${r.points || 0}</div>
-                                        <div class="points-label">PTS</div>
-                                        ${r.fastestLapBonus > 0 ? '<div style="color: #AA33FF; font-size: 10px;">+1 FL</div>' : ''}
-                                    </div>
-                                </div>
-                            `).join('')}
+                                `;
+                            }).join('')}
                         </div>
                     </div>
 
-                    <!-- FULL RESULTS -->
+                    <!-- FULL CLASSIFICATION SHEETS -->
                     <div class="full-results">
                         <h2 class="summary-title">FULL CLASSIFICATION</h2>
                         <table class="results-table">
@@ -109,27 +119,39 @@ const ResultsScreen = (() => {
                                 </tr>
                             </thead>
                             <tbody>
-                                ${results.map(r => `
-                                    <tr class="${r?.team?.id === race.playerTeamId ? 'player-result' : ''} ${r.status === 'DNF' ? 'dnf' : ''}">
-                                        <td class="pos-cell">
-                                            <span class="pos-num ${r.position === 1 ? 'pos-1' : r.position === 2 ? 'pos-2' : r.position === 3 ? 'pos-3' : ''}">${r.position || 0}</span>
-                                        </td>
-                                        <td>
-                                            <span style="margin-right: 6px;">${escapeHTML(r?.driver?.flag || '')}</span>
-                                            ${escapeHTML(r?.driver?.name || 'RACER')}
-                                        </td>
-                                        <td>
-                                            <span style="display: inline-block; width: 4px; height: 14px; background: ${r?.team?.color || '#FFF'}; margin-right: 6px; vertical-align: middle;"></span>
-                                            ${escapeHTML(r?.team?.shortName || r?.team?.name || 'TEAM')}
-                                        </td>
-                                        <td class="time-cell">
-                                            ${r.status === 'DNF' ? 'DNF' :
-                                              r.gap === null ? formatRaceTime(r.time) : formatGapLocal(r.gap)}
-                                        </td>
-                                        <td class="time-cell">${r.bestLap ? formatLapTimeLocal(r.bestLap) : '—'}</td>
-                                        <td style="font-family: 'Orbitron'; font-weight: 700;">${r.points || 0}${r.fastestLapBonus > 0 ? '+1' : ''}</td>
-                                    </tr>
-                                `).join('')}
+                                ${results.map(r => {
+                                    if (!r) return '';
+                                    const isPlayerTeam = r?.team?.id && race?.playerTeamId && r.team.id === race.playerTeamId;
+                                    const isDnf = r?.status === 'DNF';
+                                    const pos = r?.position || 99;
+                                    const dName = r?.driver?.name || 'RACER';
+                                    const dFlag = r?.driver?.flag || '';
+                                    const tName = r?.team?.shortName || r?.team?.name || 'CONSTRUCTOR';
+                                    const tCol = r?.team?.color || '#ffffff';
+                                    const timeGap = isDnf ? '<span style="color: var(--red); font-weight: 700;">DNF</span>' : (r?.gap === null || r?.gap === undefined ? formatRaceTimeLocal(r?.time) : formatGapLocal(r?.gap));
+                                    const bLap = r?.bestLap ? formatLapTimeLocal(r.bestLap) : '—';
+                                    const pts = r?.points || 0;
+                                    const flBonus = r?.fastestLapBonus > 0 ? '+1' : '';
+
+                                    return `
+                                        <tr class="${isPlayerTeam ? 'player-result' : ''} ${isDnf ? 'dnf' : ''}">
+                                            <td class="pos-cell">
+                                                <span class="pos-num ${pos === 1 ? 'pos-1' : pos === 2 ? 'pos-2' : pos === 3 ? 'pos-3' : ''}">${pos}</span>
+                                            </td>
+                                            <td>
+                                                <span style="margin-right: 6px;">${escapeHTML(dFlag)}</span>
+                                                ${escapeHTML(dName)}
+                                            </td>
+                                            <td>
+                                                <span style="display: inline-block; width: 4px; height: 14px; background: ${tCol}; margin-right: 6px; vertical-align: middle;"></span>
+                                                ${escapeHTML(tName)}
+                                            </td>
+                                            <td class="time-cell">${timeGap}</td>
+                                            <td class="time-cell">${bLap}</td>
+                                            <td style="font-family: Orbitron; font-weight: 700; color: ${isPlayerTeam ? '#00FF41' : 'var(--white)'};">${pts}${flBonus}</td>
+                                        </tr>
+                                    `;
+                                }).join('')}
                             </tbody>
                         </table>
                     </div>
@@ -195,22 +217,35 @@ const ResultsScreen = (() => {
         return `+${m}:${s.padStart(6, '0')}`;
     }
 
+    function formatRaceTimeLocal(seconds) {
+        if (!seconds || isNaN(seconds)) return '—';
+        const h = Math.floor(seconds / 3600);
+        const m = Math.floor((seconds % 3600) / 60);
+        const s = (seconds % 60).toFixed(3);
+        if (h > 0) return `${h}:${m.toString().padStart(2,'0')}:${s.padStart(6,'0')}`;
+        return `${m}:${s.padStart(6,'0')}`;
+    }
+
     function renderPodium(podium) {
-        if (podium.length < 3) {
-            return '<div style="text-align: center; padding: var(--space-xl);">Race results incomplete</div>';
+        if (!podium || !Array.isArray(podium) || podium.length === 0) {
+            return '<div style="text-align: center; padding: var(--space-xl); color: var(--gray-500); font-family: Orbitron;">Podium summary incomplete</div>';
         }
 
-        const order = [podium[1], podium[0], podium[2]]; // 2nd, 1st, 3rd
+        const p1 = podium[0] || { driver: { name: 'P1' }, team: { name: 'Team' }, position: 1 };
+        const p2 = podium[1] || { driver: { name: 'P2' }, team: { name: 'Team' }, position: 2 };
+        const p3 = podium[2] || { driver: { name: 'P3' }, team: { name: 'Team' }, position: 3 };
+
+        const order = [p2, p1, p3]; // 2nd, 1st, 3rd
         const heights = ['second', 'first', 'third'];
         const positions = ['2', '1', '3'];
 
         return order.map((p, idx) => `
             <div class="podium-block podium-${heights[idx]}">
                 <div class="podium-driver">
-                    <div class="podium-avatar">${p.driver.flag || '🏎️'}</div>
-                    <div class="podium-name">${escapeHTML(p.driver.lastName || p.driver.name)}</div>
-                    <div class="podium-team" style="color: ${p.team.color}">
-                        ${escapeHTML(p.team.shortName || p.team.name)}
+                    <div class="podium-avatar">${escapeHTML(p?.driver?.flag || '🏎️')}</div>
+                    <div class="podium-name">${escapeHTML(p?.driver?.lastName || p?.driver?.name || 'RACER')}</div>
+                    <div class="podium-team" style="color: ${p?.team?.color || '#FFF'};">
+                        ${escapeHTML(p?.team?.shortName || p?.team?.name || 'CONSTRUCTOR')}
                     </div>
                 </div>
                 <div class="podium-stand">
