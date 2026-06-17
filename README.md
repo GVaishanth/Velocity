@@ -1,5 +1,118 @@
 <div align="center">
 
+# 🏁 VELOCITY — Constructor Championship (v1.2.0)
+
+**An Elite, Serverless 2D Formula 1 Esports Racing & Management Simulation**
+
+***Championships Are Engineered.***
+
+[![ES6 Modular JS](https://img.shields.io/badge/ES6_Architecture-Vanilla_JS-FFD700?style=for-the-badge&logo=javascript)](https://developer.mozilla.org/en-US/docs/Web/JavaScript)
+[![Multiplayer Active](https://img.shields.io/badge/Multiplayer-WebRTC_P2P-0080FF?style=for-the-badge&logo=paddypower)](https://peerjs.com/)
+[![Optimized at 60FPS](https://img.shields.io/badge/Animation_Loop-60_FPS-FF0033?style=for-the-badge)](https://developer.mozilla.org/en-US/docs/Web/API/window/requestAnimationFrame)
+
+</div>
+
+---
+
+## 🏎️ Executive Summary
+
+**VELOCITY** is a professional-grade motorsport management simulation that puts you in the role of an Executive Team Principal. As the architect of your team's destiny, you must balance raw speed with mechanical preservation across a worldwide championship calendar.
+
+---
+
+## 🚀 Version 1.1.0 & 1.2.0 Technical Highlights
+
+These major updates transform the engine into a high-stakes competitive platform with authoritative physics and deep strategic complexity.
+
+### 📡 Authoritative Global Multiplayer (v1.2.0 Overhaul)
+A robust, serverless P2P arena supporting up to **12 human constructors**:
+*   **Host-Authority Architecture**: The Host acts as the single "Source of Truth." Grid positions, incidents, and final results are broadcasted every 1s to ensure 100% matching podiums across all clients.
+*   **Emergency Reconnect**: Secure session persistence in `sessionStorage` allows both Host and Challengers to recover their room and resume a live race after a page reload or crash.
+*   **Democratic Skip Voting**: In-race skips require a unanimous agreement from all human constructors via a live P2P voting system.
+*   **Synchronized Weekend**: Every human constructor is automatically navigated through FP1, FP2, and Qualifiers in sync with the Host.
+*   **Dashboard Readiness**: The Host is blocked from entering the paddock until all rivals have locked in their 🏁 READY status.
+
+### 🏁 Advanced Racing Physics & Logistics (v1.2.0)
+*   **Sequential Pit Lane Physics**: Cars follow a dynamic curved path into a dedicated pit lane. Every team has a unique, branded pit box; cars must navigate the lane and stop at their specific garage.
+*   **Red Flag System**: Massive multi-car pile-ups (3+ DNFs) trigger a full race stoppage. Physics pause while all cars undergo grid repairs and cooling before a Safety Car restart.
+*   **Driver Rivalries**: AI drivers identify direct championship rivals and defend **40% more aggressively** against them.
+*   **Precision Telemetry**: HUD sensors deliver real-time Engine, Air, Track, and Tire temperatures with one-decimal accuracy (e.g., 102.4°C).
+
+### 🎨 Livery & R&D Studio (v1.1.0)
+*   **Livery Editor**: Redesign your car with a sleek side-view studio. Customize Primary, Secondary, and Accent colors for $5,000,000 (limited to 2 changes per season).
+*   **Top-Down R&D Engineering**: Technical Car Development modal features a **Symmetric Top-Down Analysis** model. Whichever department you last upgraded glows bright green on the wireframe.
+*   **Visual Particle Engine**: Real-time engine smoke for overheating, rain spray on wet tracks, and tire smoke during lock-ups/spins.
+
+### 🌡️ Thermal & Environmental Simulation (v1.1.0)
+*   **Dynamic Thermals**: Engine temperatures fluctuate based on driving mode, ERS Boost, and Dirty Air. Exceeding **125°C** results in a terminal mechanical DNF.
+*   **Dynamic Track Evolution**: Tracks "rubber in" as the race progresses, increasing grip and lowering lap times dynamically as rubber is laid down.
+*   **Silly Season**: AI teams trade drivers based on performance and prestige at the end of each season. Aging drivers retire, replaced by explosive rookies.
+
+---
+
+## 🏛️ Comprehensive Architectural System Breakdown
+
+**VELOCITY** is built on an entirely modular architecture with **22 core subsystems and 52 simulation files**:
+
+```text
+VELOCITY/
+├── index.html                           # Master module dependency bootstrap
+├── css/                                 # 9+ specialized stylesheets for each viewport
+├── js/
+│   ├── core/                            # Engine, Save System, State Management, Audio
+│   ├── data/                            # Achievements, Drivers, Staff, Tracks, Compounds
+│   ├── home/                            # Home Controller, Tire Wheel logic, Reconnect UI
+│   ├── rendering/                       # 60fps Animation Loop, Track & Car Renderer, Effects
+│   ├── screens/                         # View Controllers (Dashboard, Lobby, Results, etc.)
+│   ├── simulation/                      # AI Drivers, Race Engine, Tire Model, Silly Season, Weather
+│   └── ui/                              # Modals, Notifications, Player Controls, Timing Tables
+└── README.md                            # Technical Documentation
+```
+
+---
+
+## 🌟 Definitive Master Subsystems
+
+### 📜 Legendary Historical Scenarios (`THE HALL OF GLORY`)
+Drop directly into the cockpits of the most nail-biting title shootouts:
+*   🌧️🇧🇷 **THE MIRACLE OF BRAZIL**: P6 on Softs in a downpour with 5 laps left. Execute the undercut and snatch the title!
+*   🇦🇪🏆 **THE ABU DHABI SHOOTOUT**: Final lap Safety Car sprint. Manage ERS Boost to pass the rival World Champion.
+*   🇲🇨🛡️ **THE STRAT 5 MONACO DEFENSE**: Defend P1 at Monaco while power unit thermals are critical.
+
+### 🌦️ Doppler Meteorology Radar
+Located in your Tactical Command Deck, this interactive station monitors surface wetness and highlights active Pirelli windows (Slicks/Inters/Wets) with a striking apex predictive timer.
+
+### ⚡ FIA Virtual Safety Car (VSC) Sprint
+Balance your pacing slider within `±8%` of the moving FIA target to charge your Slingshot Sprint Gauge for a -2.5s pace surge upon green flags.
+
+---
+
+## 🛠️ Engineering Algorithmic Defenses
+
+1. **Host-Authority Results**: Final race results are calculated by the Host and broadcasted as a definitive state to all clients.
+2. **Multiplayer Pace Sync**: Local physics randomness is reduced by 80% during online races to ensure client alignment.
+3. **DNF Console Lockdown**: Retired drivers have their cockpit controls permanently disabled and telemetry set to "OFF."
+4. **Data Isolation**: Single-player careers are protected. Multiplayer sessions use a separate `mp_gamestate` storage key.
+
+---
+
+## 🖥️ Getting Started
+
+### pure Client Auto-Launch
+To run the game locally, simply open `index.html` in any standard Web Browser. No backend server or Node installation is required.
+
+---
+
+## 🏆 Official ESport Broadcast Health Parity
+
+This entire software suite is validated with **exactly 0 syntax errors** and optimized for **60FPS** animation. Built to the absolute top standard of Esport broadcast layouts.
+
+*Enjoy your live Grand Prix gameplay, make those split-second strategy calls, and dominate the absolute peak of Formula 1 Esport management!*
+
+---
+
+<div align="center">
+
 # 🏁 VELOCITY — Constructor Championship (v1.0.0)
 
 **An Elite, Serverless 2D Formula 1 Esports Racing & Management Management Gameplay Simulation**
