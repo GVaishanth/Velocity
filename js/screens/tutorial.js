@@ -3,7 +3,7 @@
    Interactive how-to-play guide with chapters
    ============================================ */
 
-const TutorialScreen = (() => {
+window.TutorialScreen = (() => {
 
     let container = null;
     let isActive = false;
@@ -285,6 +285,30 @@ const TutorialScreen = (() => {
                 <h3>Slingshot Pace Surge Bonus</h3>
                 <p>Flawless target tracking charges up your cumulative laser Slingshot gauge. If you achieve <kbd>&gt; 65%</kbd> Slingshot Charge when the 15-second countdown ends:</p>
                 <p><strong style="color: #FFD700;">🟢 GREEN FLAG!</strong> Your dual dual drivers earn an immediate <strong style="color: #00FF41;">-2.5s absolute pace acceleration bonus</strong> and a free bonus Overtake ERS Boost charge out of the neutralization!</p>
+            `
+        },
+        {
+            id: 'multiplayer',
+            title: 'Online Multiplayer Arena',
+            content: () => `
+                <p>Challenge up to 11 human constructors in the serverless Global Arena.</p>
+
+                <h3>Hosting a Lobby</h3>
+                <ul>
+                    <li><strong>Lobby Code</strong> — Share the SALT-based unique code with friends.</li>
+                    <li><strong>Ready System</strong> — You cannot launch until all human grid members click their cards to toggle 🏁 READY.</li>
+                    <li><strong>Master Control</strong> — The Host sets the season length, difficulty, and simulation speed.</li>
+                </ul>
+
+                <h3>Multiplayer Synergy</h3>
+                <ul>
+                    <li><strong>Unique Roster</strong> — Drivers, Teams, and Staff are locked once chosen. No two constructors can have the same setup.</li>
+                    <li><strong>Synchronized Weekend</strong> — Practice and Qualifying sessions start for everyone at once. Grid results are identical across all clients.</li>
+                    <li><strong>Skip Voting</strong> — Skipping the rest of a race requires a unanimous vote from all human players.</li>
+                </ul>
+
+                <h3>Netcode & Latency</h3>
+                <p>Watch the 🛰️ ms ping indicator. The Host broadcasts race positions every 2 seconds to ensure a perfectly synchronized 24-car field worldwide. If you lose connection, an emergency <strong>RECONNECT</strong> popup will appear on your Home Screen.</p>
             `
         }
     ];

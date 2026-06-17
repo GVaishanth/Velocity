@@ -5,7 +5,7 @@
    - Added Performance Mode and Season Length settings
    ============================================ */
 
-const HomeController = (() => {
+window.HomeController = (() => {
 
     let isActive = false;
     let subsystemRef = null;
@@ -46,6 +46,17 @@ const HomeController = (() => {
         const settingsBtn = document.getElementById('btn-settings');
         const brazilBtn = document.getElementById('btn-quick-launch-brazil');
         const abudhabiBtn = document.getElementById('btn-quick-launch-abudhabi');
+        
+        // --- MULTIPLAYER RECONNECT CHECK ---
+        try {
+            const session = sessionStorage.getItem('velocity_mp_session');
+            if (session) {
+                const data = JSON.parse(session);
+                if (data && data.roomCode) {
+                    showReconnectPopup(data); // PASS FULL DATA OBJECT
+                }
+            }
+        } catch(e) {}
 
         if (brazilBtn) {
             brazilBtn.addEventListener('click', (e) => {
@@ -374,11 +385,61 @@ const HomeController = (() => {
             if (!isActive) reactivate();
         });
 
+        EventBus.on('multiplayer:disconnected', (data) => {
+            if (data && data.roomCode) {
+                showReconnectPopup(data.roomCode);
+            }
+        });
+
         EventBus.on('screen:changed', (data) => {
             if (data.previous === 'home' && data.screen !== 'home') {
                 // Keep active for fast return
             }
         });
+    }
+
+    function showReconnectPopup(data) {
+        if (typeof Modals === 'undefined' || !data || !data.roomCode) return;
+        
+        const roomCode = data.roomCode;
+        const isHost = data.isHost;
+
+        setTimeout(() => {
+            Modals.confirm({
+                title: '⚡ UPLINK LOST',
+                body: `
+                    <div style="text-align: center; padding: 10px;">
+                        <div style="font-size: 48px; margin-bottom: 15px;">📡❌</div>
+                        <p style="font-family: Rajdhani; font-size: 16px; color: var(--gray-300); line-height: 1.5;">
+                            Connection to Master Broker was interrupted. Would you like to attempt to recover your session in Room <b>${roomCode}</b>?
+                        </p>
+                    </div>
+                `,
+                confirmText: isHost ? 'RE-ESTABLISH HOST' : 'RECONNECT NOW',
+                cancelText: 'STAY OFFLINE',
+                onConfirm: () => {
+                    if (typeof EventBus !== 'undefined') {
+                        EventBus.emit('nav:go', { screen: 'multiplayer', color: '#FF0033' });
+                        setTimeout(() => {
+                            if (typeof OnlineManager !== 'undefined') {
+                                if (isHost) {
+                                    // Special Host Reconnect logic: Re-create with fixed ID
+                                    OnlineManager.createRoom(() => {
+                                        Notifications.success('Host Session Restored!');
+                                        // Need to move to staging
+                                        MultiplayerScreen.setLobbyView('host_staging');
+                                    }, roomCode);
+                                } else {
+                                    OnlineManager.connectAndReceiveHostLocked(roomCode, () => {
+                                        // Handled
+                                    });
+                                }
+                            }
+                        }, 500);
+                    }
+                }
+            });
+        }, 1000);
     }
 
     function escapeHTML(str) {

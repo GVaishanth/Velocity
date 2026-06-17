@@ -5,7 +5,7 @@
    Manages screen transitions and state flow
    ============================================ */
 
-const GameEngine = (() => {
+window.GameEngine = (() => {
     // Engine state
     let running = false;
     let lastTime = 0;

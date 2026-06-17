@@ -4,12 +4,13 @@
    Registered with GameEngine as a subsystem
    ============================================ */
 
-const AnimationLoop = (() => {
+window.AnimationLoop = (() => {
 
     let isActive = false;
     let lastFps = 60;
     let frameCount = 0;
     let lastFpsTime = 0;
+    let subsystemRef = null;
 
     /**
      * Start the rendering loop
@@ -31,9 +32,10 @@ const AnimationLoop = (() => {
 
         // Register as game engine subsystem (for update ticks)
         if (typeof GameEngine !== 'undefined') {
-            GameEngine.registerSubsystem({
+            subsystemRef = {
                 update: tick
-            });
+            };
+            GameEngine.registerSubsystem(subsystemRef);
         }
     }
 
@@ -88,6 +90,10 @@ const AnimationLoop = (() => {
      */
     function stop() {
         isActive = false;
+        if (subsystemRef && typeof GameEngine !== 'undefined') {
+            GameEngine.unregisterSubsystem(subsystemRef);
+            subsystemRef = null;
+        }
         TrackRenderer.destroy();
         CarRenderer.destroy();
         Effects.destroy();

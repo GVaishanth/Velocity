@@ -5,7 +5,7 @@
    sector colors, tire info, pit counts
    ============================================ */
 
-const TimingTable = (() => {
+window.TimingTable = (() => {
 
     let container = null;
     let tableElement = null;
@@ -121,6 +121,7 @@ const TimingTable = (() => {
         // Classes
         const classes = [];
         if (car.isPlayer) classes.push('player-row');
+        if (car.isLocalPlayer) classes.push('local-player-row');
         if (car.status === 'DNF') classes.push('dnf-row');
         if (car.position === 1) classes.push('leader-row');
         if (expandedRow === car.id) classes.push('expanded');

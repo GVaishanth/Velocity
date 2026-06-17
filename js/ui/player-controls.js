@@ -4,7 +4,7 @@
    with precise live DOM updates to eliminate button recreation glitches
    ============================================ */
 
-const PlayerControls = (() => {
+window.PlayerControls = (() => {
 
     let container = null;
     let isInitialized = false;
@@ -80,61 +80,86 @@ const PlayerControls = (() => {
             const isPitting = car.isPittingNow;
             const isDoubleStacking = car.pitPhase === 'stack_waiting';
             const pitsUsed = car.pitStopCount || 0;
+            const isDnf = car.status === 'DNF';
 
             let pitBtnText = isDoubleStacking ? 'STACKING...' : isPitting ? 'PITTING...' : 'PIT NOW';
             let pitBtnClass = isDoubleStacking ? 'btn-yellow' : isPitting ? 'pitting' : '';
 
+            if (isDnf) {
+                pitBtnText = 'RETIRED';
+            }
+
             // Initial Telemetry calculations
-            const risk = Math.min(100, Math.round(car.boostRiskPercent || 0));
-            const regen = Math.min(100, Math.round(car.boostRegenProgress || 0));
+            const risk = isDnf ? 0 : Math.min(100, Math.round(car.boostRiskPercent || 0));
+            const regen = isDnf ? 0 : Math.min(100, Math.round(car.boostRegenProgress || 0));
             const riskColor = risk > 70 ? '#FF0033' : risk > 40 ? '#FFD700' : '#00FF41';
 
             const dName = car.driver.name ? escapeHTML(car.driver.name) : 'RACER';
 
             return `
-                <div class="driver-control-cockpit" data-car-id="${car.id}" style="flex: 1; max-width: 48%; height: 90%; background: #111111; border: 1px solid #2a2a2a; border-radius: var(--radius-md); padding: 6px 16px; display: flex; align-items: center; justify-content: space-between; gap: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.8);">
+                <div class="driver-control-cockpit ${isDnf ? 'dnf-locked' : ''}" data-car-id="${car.id}" style="flex: 1; max-width: 48%; height: 90%; background: ${isDnf ? '#0a0505' : '#111111'}; border: 1px solid ${isDnf ? '#441111' : '#2a2a2a'}; border-radius: var(--radius-md); padding: 6px 16px; display: flex; align-items: center; justify-content: space-between; gap: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.8); opacity: ${isDnf ? '0.7' : '1.0'}; position: relative;">
+                    ${isDnf ? '<div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(255,0,0,0.05); pointer-events: none; z-index: 5;"></div>' : ''}
+                    
                     <!-- Col 1: Driver Name & Position -->
                     <div style="display: flex; flex-direction: column; min-width: 90px;">
-                        <span style="font-family: Orbitron; font-weight: 900; font-size: 14px; color: var(--white); text-transform: uppercase;">${dName}</span>
-                        <span style="font-family: Orbitron; font-weight: 900; font-size: 20px; color: var(--green); margin-top: 2px;">P${car.position || 0}</span>
+                        <span style="font-family: Orbitron; font-weight: 900; font-size: 14px; color: ${isDnf ? 'var(--red)' : 'var(--white)'}; text-transform: uppercase;">${dName}</span>
+                        <span style="font-family: Orbitron; font-weight: 900; font-size: 20px; color: ${isDnf ? '#666' : 'var(--green)'}; margin-top: 2px;">${isDnf ? 'DNF' : 'P' + (car.position || 0)}</span>
                         <span style="font-family: Rajdhani; font-size: 11px; color: var(--gray-400); margin-top: 2px;">Pits: ${pitsUsed}</span>
                     </div>
 
                     <!-- Col 2: High-Contrast Premium ERS Mode Toggles -->
                     <div class="mode-selector" style="display: flex; gap: 4px; border-radius: var(--radius-sm); overflow: hidden; flex-shrink: 0;">
-                        <button class="mode-btn" data-mode="PUSH" data-car-id="${car.id}" ${isPitting ? 'disabled' : ''} style="padding: 8px 12px; font-family: Orbitron; font-size: 11px; font-weight: 900; border-radius: 4px; border: 1px solid ${mode === 'PUSH' ? '#FF0033' : '#333'}; background: ${mode === 'PUSH' ? '#FF0033' : '#1a1a1a'}; color: ${mode === 'PUSH' ? '#FFFFFF' : '#888'}; cursor: pointer; transition: all 0.2s ease;">PUSH</button>
-                        <button class="mode-btn" data-mode="STANDARD" data-car-id="${car.id}" ${isPitting ? 'disabled' : ''} style="padding: 8px 12px; font-family: Orbitron; font-size: 11px; font-weight: 900; border-radius: 4px; border: 1px solid ${mode === 'STANDARD' ? '#FFFFFF' : '#333'}; background: ${mode === 'STANDARD' ? '#FFFFFF' : '#1a1a1a'}; color: ${mode === 'STANDARD' ? '#000000' : '#888'}; cursor: pointer; transition: all 0.2s ease;">STD</button>
-                        <button class="mode-btn" data-mode="CONSERVE" data-car-id="${car.id}" ${isPitting ? 'disabled' : ''} style="padding: 8px 12px; font-family: Orbitron; font-size: 11px; font-weight: 900; border-radius: 4px; border: 1px solid ${mode === 'CONSERVE' ? '#00FF41' : '#333'}; background: ${mode === 'CONSERVE' ? '#00FF41' : '#1a1a1a'}; color: ${mode === 'CONSERVE' ? '#000000' : '#888'}; cursor: pointer; transition: all 0.2s ease;">SAVE</button>
+                        <button class="mode-btn" data-mode="PUSH" data-car-id="${car.id}" ${isPitting || isDnf ? 'disabled' : ''} style="padding: 8px 12px; font-family: Orbitron; font-size: 11px; font-weight: 900; border-radius: 4px; border: 1px solid ${mode === 'PUSH' ? '#FF0033' : '#333'}; background: ${mode === 'PUSH' ? '#FF0033' : '#1a1a1a'}; color: ${mode === 'PUSH' ? '#FFFFFF' : '#888'}; cursor: ${isDnf ? 'not-allowed' : 'pointer'}; transition: all 0.2s ease;">PUSH</button>
+                        <button class="mode-btn" data-mode="STANDARD" data-car-id="${car.id}" ${isPitting || isDnf ? 'disabled' : ''} style="padding: 8px 12px; font-family: Orbitron; font-size: 11px; font-weight: 900; border-radius: 4px; border: 1px solid ${mode === 'STANDARD' ? '#FFFFFF' : '#333'}; background: ${mode === 'STANDARD' ? '#FFFFFF' : '#1a1a1a'}; color: ${mode === 'STANDARD' ? '#000000' : '#888'}; cursor: ${isDnf ? 'not-allowed' : 'pointer'}; transition: all 0.2s ease;">STD</button>
+                        <button class="mode-btn" data-mode="CONSERVE" data-car-id="${car.id}" ${isPitting || isDnf ? 'disabled' : ''} style="padding: 8px 12px; font-family: Orbitron; font-size: 11px; font-weight: 900; border-radius: 4px; border: 1px solid ${mode === 'CONSERVE' ? '#00FF41' : '#333'}; background: ${mode === 'CONSERVE' ? '#00FF41' : '#1a1a1a'}; color: ${mode === 'CONSERVE' ? '#000000' : '#888'}; cursor: ${isDnf ? 'not-allowed' : 'pointer'}; transition: all 0.2s ease;">SAVE</button>
                     </div>
 
                     <!-- Col 3: Strategy Action Buttons -->
                     <div style="display: flex; gap: 8px; align-items: center; flex-shrink: 0;">
-                        <button class="pit-btn" data-action="pit" data-car-id="${car.id}" ${isPitting ? 'disabled' : ''} style="padding: 8px 14px; font-family: Orbitron; font-size: 11px; font-weight: 900; width: 85px; text-align: center; border-radius: 6px; cursor: pointer; transition: all 0.2s ease; border: 1px solid ${isDoubleStacking ? '#FFD700' : isPitting ? '#FF0033' : '#FF0033'}; background: ${isDoubleStacking ? '#FFD700' : isPitting ? '#FF0033' : 'rgba(255,0,51,0.15)'}; color: ${isDoubleStacking ? '#000' : isPitting ? '#FFF' : '#FF0033'};">
+                        <button class="pit-btn" data-action="pit" data-car-id="${car.id}" ${isPitting || isDnf ? 'disabled' : ''} style="padding: 8px 14px; font-family: Orbitron; font-size: 11px; font-weight: 900; width: 85px; text-align: center; border-radius: 6px; cursor: ${isDnf ? 'not-allowed' : 'pointer'}; transition: all 0.2s ease; border: 1px solid ${isDnf ? '#444' : (isDoubleStacking ? '#FFD700' : isPitting ? '#FF0033' : '#FF0033')}; background: ${isDnf ? '#222' : (isDoubleStacking ? '#FFD700' : isPitting ? '#FF0033' : 'rgba(255,0,51,0.15)')}; color: ${isDnf ? '#666' : (isDoubleStacking ? '#000' : isPitting ? '#FFF' : '#FF0033')};">
                             ${pitBtnText}
                         </button>
 
-                        <button class="boost-btn" data-action="boost" data-car-id="${car.id}" ${boostsLeft === 0 || isPitting || car.overtakeBoostActive ? 'disabled' : ''} style="padding: 8px 14px; font-family: Orbitron; font-size: 11px; font-weight: 900; background: ${car.overtakeBoostActive ? 'rgba(255,215,0,0.2)' : '#1a1a1a'}; border: 1px solid #FFD700; color: #FFD700; border-radius: 6px; width: 95px; text-align: center; cursor: pointer; transition: all 0.2s ease;">
+                        <button class="boost-btn" data-action="boost" data-car-id="${car.id}" ${boostsLeft === 0 || isPitting || car.overtakeBoostActive || isDnf ? 'disabled' : ''} style="padding: 8px 14px; font-family: Orbitron; font-size: 11px; font-weight: 900; background: ${car.overtakeBoostActive ? 'rgba(255,215,0,0.2)' : '#1a1a1a'}; border: 1px solid ${isDnf ? '#444' : '#FFD700'}; color: ${isDnf ? '#666' : '#FFD700'}; border-radius: 6px; width: 95px; text-align: center; cursor: ${isDnf ? 'not-allowed' : 'pointer'}; transition: all 0.2s ease;">
                             🚀 BOOST (${boostsLeft}/3)
                         </button>
                     </div>
 
                     <!-- Col 4: Live Sub-millisecond DOM Embedded Gauges -->
-                    <div style="display: flex; flex-direction: column; gap: 4px; width: 110px; background: rgba(0,0,0,0.6); padding: 4px 8px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.05); flex-shrink: 0;">
-                        <div style="display: flex; flex-direction: column; gap: 2px;">
-                            <div style="display: flex; justify-content: space-between; font-size: 9px; font-family: Orbitron; font-weight: 900; color: ${riskColor};" id="risk-txt-${car.id}">
+                    <div style="display: flex; flex-direction: column; gap: 4px; width: 140px; background: rgba(0,0,0,0.6); padding: 4px 8px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.05); flex-shrink: 0;">
+                        <div style="display: flex; flex-direction: column; gap: 1px;">
+                            <div style="display: flex; justify-content: space-between; font-size: 8px; font-family: Orbitron; font-weight: 900; color: ${isDnf ? '#555' : riskColor};" id="risk-txt-${car.id}">
                                 <span>RISK</span><span>${risk}%</span>
                             </div>
-                            <div style="width: 100%; height: 5px; background: var(--gray-800); border-radius: 2px; overflow: hidden;">
-                                <div style="height: 100%; width: ${risk}%; background-color: ${riskColor}; transition: width 0.1s linear;" id="risk-bar-${car.id}"></div>
+                            <div style="width: 100%; height: 3px; background: var(--gray-800); border-radius: 1px; overflow: hidden;">
+                                <div style="height: 100%; width: ${risk}%; background-color: ${isDnf ? '#333' : riskColor};" id="risk-bar-${car.id}"></div>
                             </div>
                         </div>
 
-                        <div style="display: flex; flex-direction: column; gap: 2px;">
-                            <div style="display: flex; justify-content: space-between; font-size: 9px; font-family: Orbitron; font-weight: 900; color: #FFD700;" id="regen-txt-${car.id}">
+                        <div style="display: flex; flex-direction: column; gap: 1px;">
+                            <div style="display: flex; justify-content: space-between; font-size: 8px; font-family: Orbitron; font-weight: 900; color: ${isDnf ? '#555' : '#FFD700'};" id="regen-txt-${car.id}">
                                 <span>ERS</span><span>${regen}%</span>
                             </div>
-                            <div style="width: 100%; height: 5px; background: var(--gray-800); border-radius: 2px; overflow: hidden;">
-                                <div style="height: 100%; width: ${regen}%; background: linear-gradient(90deg, #BB9900, #FFD700); transition: width 0.1s linear;" id="regen-bar-${car.id}"></div>
+                            <div style="width: 100%; height: 3px; background: var(--gray-800); border-radius: 1px; overflow: hidden;">
+                                <div style="height: 100%; width: ${regen}%; background: ${isDnf ? '#333' : 'linear-gradient(90deg, #BB9900, #FFD700)'};" id="regen-bar-${car.id}"></div>
+                            </div>
+                        </div>
+
+                        <div style="display: flex; flex-direction: column; gap: 1px;">
+                            <div style="display: flex; justify-content: space-between; font-size: 8px; font-family: Orbitron; font-weight: 900; color: ${isDnf ? '#555' : '#0080FF'};" id="temp-txt-${car.id}">
+                                <span>TEMP</span><span>${isDnf ? 'OFF' : (car.engineTemp || 80).toFixed(1) + '°C'}</span>
+                            </div>
+                            <div style="width: 100%; height: 3px; background: var(--gray-800); border-radius: 1px; overflow: hidden;">
+                                <div style="height: 100%; width: ${isDnf ? 0 : Math.min(100, ((car.engineTemp || 80) - 60) / 0.8)}%; background: ${isDnf ? '#333' : '#0080FF'};" id="temp-bar-${car.id}"></div>
+                            </div>
+                        </div>
+
+                        <div style="display: flex; flex-direction: column; gap: 1px;">
+                            <div style="display: flex; justify-content: space-between; font-size: 8px; font-family: Orbitron; font-weight: 900; color: ${isDnf ? '#555' : '#FFFFFF'};" id="tire-txt-${car.id}">
+                                <span>TIRE</span><span>${isDnf ? '—' : Math.round(100 - (car.tireState?.wearPercent || 0)) + '%'}</span>
+                            </div>
+                            <div style="width: 100%; height: 3px; background: var(--gray-800); border-radius: 1px; overflow: hidden;">
+                                <div style="height: 100%; width: ${isDnf ? 0 : 100 - (car.tireState?.wearPercent || 0)}%; background: ${isDnf ? '#333' : '#FFFFFF'};" id="tire-bar-${car.id}"></div>
                             </div>
                         </div>
                     </div>
@@ -154,16 +179,17 @@ const PlayerControls = (() => {
         const playerCars = RaceEngine.getLocalPlayerCars ? RaceEngine.getLocalPlayerCars() : [];
 
         playerCars.forEach(car => {
-            const risk = Math.min(100, Math.round(car.boostRiskPercent || 0));
-            const regen = Math.min(100, Math.round(car.boostRegenProgress || 0));
-            const riskColor = risk > 70 ? '#FF0033' : risk > 40 ? '#FFD700' : '#00FF41';
+            const isDnf = car.status === 'DNF';
+            const risk = isDnf ? 0 : Math.min(100, Math.round(car.boostRiskPercent || 0));
+            const regen = isDnf ? 0 : Math.min(100, Math.round(car.boostRegenProgress || 0));
+            const riskColor = isDnf ? '#555' : (risk > 70 ? '#FF0033' : risk > 40 ? '#FFD700' : '#00FF41');
 
             // Direct DOM updates
             const riskBar = document.getElementById(`risk-bar-${car.id}`);
             const riskTxt = document.getElementById(`risk-txt-${car.id}`);
             if (riskBar) {
                 riskBar.style.width = `${risk}%`;
-                riskBar.style.backgroundColor = riskColor;
+                riskBar.style.backgroundColor = isDnf ? '#333' : riskColor;
             }
             if (riskTxt) {
                 riskTxt.style.color = riskColor;
@@ -174,9 +200,40 @@ const PlayerControls = (() => {
             const regenTxt = document.getElementById(`regen-txt-${car.id}`);
             if (regenBar) {
                 regenBar.style.width = `${regen}%`;
+                if (isDnf) regenBar.style.background = '#333';
             }
             if (regenTxt) {
+                if (isDnf) regenTxt.style.color = '#555';
                 regenTxt.innerHTML = `<span>ERS</span><span>${regen}%</span>`;
+            }
+
+            // Temp Update
+            const tempBar = document.getElementById(`temp-bar-${car.id}`);
+            const tempTxt = document.getElementById(`temp-txt-${car.id}`);
+            const tempValue = car.engineTemp || 80;
+            const temp = Math.round(tempValue); // For color thresholds
+            const tempColor = isDnf ? '#555' : (temp > 115 ? '#FF0033' : temp > 100 ? '#FFD700' : '#0080FF');
+            if (tempBar) {
+                tempBar.style.width = `${isDnf ? 0 : Math.min(100, (tempValue - 60) / 0.8)}%`;
+                tempBar.style.backgroundColor = isDnf ? '#333' : tempColor;
+            }
+            if (tempTxt) {
+                tempTxt.style.color = tempColor;
+                tempTxt.innerHTML = `<span>TEMP</span><span>${isDnf ? 'OFF' : tempValue.toFixed(1) + '°C'}</span>`;
+            }
+
+            // Tire Update
+            const tireBar = document.getElementById(`tire-bar-${car.id}`);
+            const tireTxt = document.getElementById(`tire-txt-${car.id}`);
+            const tireLife = Math.round(100 - (car.tireState?.wearPercent || 0));
+            const tireColor = isDnf ? '#555' : (tireLife < 20 ? '#FF0033' : tireLife < 50 ? '#FFD700' : '#FFFFFF');
+            if (tireBar) {
+                tireBar.style.width = `${isDnf ? 0 : tireLife}%`;
+                tireBar.style.backgroundColor = isDnf ? '#333' : tireColor;
+            }
+            if (tireTxt) {
+                tireTxt.style.color = tireColor;
+                tireTxt.innerHTML = `<span>TIRE</span><span>${isDnf ? '—' : tireLife + '%'}</span>`;
             }
         });
     }
@@ -189,7 +246,25 @@ const PlayerControls = (() => {
 
         // Playback controls
         container.querySelector('#btn-pause')?.addEventListener('click', () => {
-            if (typeof RaceEngine !== 'undefined') RaceEngine.togglePause();
+            if (typeof RaceEngine === 'undefined') return;
+
+            const race = RaceEngine.getState();
+            if (race?.isMultiplayerRace && typeof OnlineManager !== 'undefined') {
+                if (!OnlineManager.isHost()) {
+                    // Challenger logic: Request pause using credits
+                    const me = OnlineManager.getOnlinePlayers().find(p => p.username === OnlineManager.getMyUsername());
+                    if (me && me.pauseCredits > 0) {
+                        OnlineManager.broadcastAction('PAUSE_REQUEST', { requesterId: OnlineManager.getMyConnectionId() });
+                    } else {
+                        Notifications.error('Out of Credits', 'You have used all 3 pause credits.');
+                    }
+                    return;
+                }
+                // Host logic: infinite pauses
+                OnlineManager.broadcastAction('RACE_PAUSE_TOGGLE', { isPaused: !RaceEngine.isCurrentlyPaused(), requester: OnlineManager.getMyUsername() });
+            }
+
+            RaceEngine.togglePause();
             updatePauseIcon();
         });
 
@@ -215,6 +290,8 @@ const PlayerControls = (() => {
             const action = target.dataset.action;
 
             if (typeof RaceEngine === 'undefined') return;
+            const car = RaceEngine.getCar ? RaceEngine.getCar(carId) : null;
+            if (car && car.status === 'DNF') return; // LOCK: Prevent any interaction with crashed cars
 
             if (mode && carId) {
                 RaceEngine.setDriverMode(carId, mode);
@@ -329,20 +406,50 @@ const PlayerControls = (() => {
 
     function speedUp() {
         if (typeof RaceEngine === 'undefined') return;
+
+        // --- MULTIPLAYER: Only Host controls simulation speed ---
+        const race = RaceEngine.getState();
+        if (race?.isMultiplayerRace && typeof OnlineManager !== 'undefined') {
+            if (!OnlineManager.isHost()) {
+                Notifications.info('Host Restricted', 'Only the Host can adjust simulation speed.');
+                return;
+            }
+        }
+
         const current = RaceEngine.getSpeed();
         const idx = SPEED_LEVELS.indexOf(current);
         const next = SPEED_LEVELS[Math.min(idx + 1, SPEED_LEVELS.length - 1)];
         RaceEngine.setSpeed(next);
         updateSpeedDisplay(next);
+
+        // Broadcast to clients
+        if (race?.isMultiplayerRace && typeof OnlineManager !== 'undefined') {
+            OnlineManager.updateSettings({ speed: next });
+        }
     }
 
     function speedDown() {
         if (typeof RaceEngine === 'undefined') return;
+
+        // --- MULTIPLAYER: Only Host controls simulation speed ---
+        const race = RaceEngine.getState();
+        if (race?.isMultiplayerRace && typeof OnlineManager !== 'undefined') {
+            if (!OnlineManager.isHost()) {
+                Notifications.info('Host Restricted', 'Only the Host can adjust simulation speed.');
+                return;
+            }
+        }
+
         const current = RaceEngine.getSpeed();
         const idx = SPEED_LEVELS.indexOf(current);
         const next = SPEED_LEVELS[Math.max(idx - 1, 0)];
         RaceEngine.setSpeed(next);
         updateSpeedDisplay(next);
+
+        // Broadcast to clients
+        if (race?.isMultiplayerRace && typeof OnlineManager !== 'undefined') {
+            OnlineManager.updateSettings({ speed: next });
+        }
     }
 
     function updateSpeedDisplay(speed) {
@@ -363,6 +470,24 @@ const PlayerControls = (() => {
      * Confirm skip to end with modal
      */
     function confirmSkip() {
+        if (typeof RaceEngine !== 'undefined' && RaceEngine.getState()?.isMultiplayerRace) {
+            Modals.confirm({
+                title: 'Request Skip to End?',
+                body: 'This will start a vote to skip the rest of the race. All human players must agree.',
+                confirmText: 'Start Vote',
+                onConfirm: () => {
+                    if (typeof OnlineManager !== 'undefined') {
+                        OnlineManager.broadcastAction('SKIP_VOTE_START', { requester: OnlineManager.getMyUsername() });
+                        // Requester implicitly votes yes
+                        if (typeof OnlineManager.handleSkipVoteConfirm === 'function') {
+                            OnlineManager.handleSkipVoteConfirm(OnlineManager.getMyUsername());
+                        }
+                    }
+                }
+            });
+            return;
+        }
+
         if (typeof Modals !== 'undefined') {
             Modals.confirm({
                 title: 'Skip to End?',

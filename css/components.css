@@ -292,6 +292,16 @@
     border-left: 3px solid var(--green);
 }
 
+.timing-table tr.local-player-row {
+    background: rgba(0, 212, 255, 0.1) !important;
+    border-left: 4px solid #00D4FF !important;
+}
+
+.timing-table tr.local-player-row .driver-name {
+    color: #00D4FF;
+    font-weight: 800;
+}
+
 .timing-table tr.dnf-row {
     opacity: 0.4;
     text-decoration: line-through;

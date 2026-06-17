@@ -122,7 +122,10 @@ const DriverRadio = (() => {
             "MGU-H deployment seems clipping early. Check telemetry channels!",
             "Getting an unexpected power unit derate down the back straight.",
             "Oil thermals are creeping up slightly. Switching strat modes.",
-            "Something feels slightly off with the torque synchronization."
+            "Something feels slightly off with the torque synchronization.",
+            "Water temp is spiking, getting no airflow in this dirty air!",
+            "Engine is absolutely cooking! I have to back off and find clean air.",
+            "Thermal alarms are going off! Gearbox is getting extremely hot."
         ],
         general: [
             "Car feels beautifully balanced. Holding the target lap delta.",
@@ -147,6 +150,9 @@ const DriverRadio = (() => {
     function pickCommentCategory(car, raceState) {
         const tireState = car.tireState;
         const tireWear = tireState.wearPercent;
+
+        // Engine & Thermal issues
+        if (car.engineTemp > 115) return 'engine_issue';
 
         // Tire state has highest priority
         if (tireState.isWornOut) return 'tire_cliff';

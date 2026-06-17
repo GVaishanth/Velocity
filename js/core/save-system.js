@@ -4,7 +4,7 @@
    compression, and error handling
    ============================================ */
 
-const SaveSystem = (() => {
+window.SaveSystem = (() => {
     const SAVE_PREFIX = 'velocity_';
     const SAVE_VERSION = 1;
 

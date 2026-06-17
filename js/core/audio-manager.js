@@ -4,7 +4,7 @@
    Better envelopes and filtered tones
    ============================================ */
 
-const AudioManager = (() => {
+window.AudioManager = (() => {
     let audioContext = null;
     let masterGain = null;
     let musicGain = null;
@@ -453,11 +453,18 @@ const AudioManager = (() => {
 
     function modulateEngine(intensity = 0.5) {
         if (!engineOscillator) return;
-        const targetFreq = 55 + (intensity * 50);
-        engineOscillator.frequency.linearRampToValueAtTime(
-            targetFreq,
-            audioContext.currentTime + 0.5
-        );
+        
+        // Intensity 0-1 mapped to frequency
+        const targetFreq = 55 + (intensity * 120);
+        
+        // Intensity also opens up the filter for a "grittier" sound
+        const targetFilter = 250 + (intensity * 600);
+        
+        const now = audioContext.currentTime;
+        engineOscillator.frequency.setTargetAtTime(targetFreq, now, 0.1);
+        if (engineOscillator._filter) {
+            engineOscillator._filter.frequency.setTargetAtTime(targetFilter, now, 0.1);
+        }
     }
 
     function stopEngineLoop() {

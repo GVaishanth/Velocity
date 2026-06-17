@@ -4,7 +4,7 @@
    between all game modules
    ============================================ */
 
-const EventBus = (() => {
+window.EventBus = (() => {
     // Store all event listeners
     // { eventName: [{ callback, once }] }
     const listeners = {};

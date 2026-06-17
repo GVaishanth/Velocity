@@ -4,7 +4,7 @@
    Auto-dismissing alerts for game events
    ============================================ */
 
-const Notifications = (() => {
+window.Notifications = (() => {
 
     let container = null;
     const MAX_VISIBLE = 5;

@@ -4,7 +4,7 @@
    turn markers, DRS zones, weather overlay
    ============================================ */
 
-const TrackRenderer = (() => {
+window.TrackRenderer = (() => {
 
     let canvas = null;
     let ctx = null;
@@ -98,44 +98,68 @@ const TrackRenderer = (() => {
      * Build path data and sample points along track
      */
     function buildPathData() {
-        // Create temporary SVG element to use getPointAtLength
-        const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-        path.setAttribute('d', track.svgPath);
-        svg.appendChild(path);
-        document.body.appendChild(svg);
+        try {
+            if (!track || !track.svgPath) throw new Error('Missing track path');
 
-        trackLength = path.getTotalLength();
+            // Create temporary SVG element to use getPointAtLength
+            const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+            const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+            path.setAttribute('d', track.svgPath);
+            svg.appendChild(path);
+            
+            // Temporary mount to compute length
+            svg.style.position = 'absolute';
+            svg.style.visibility = 'hidden';
+            document.body.appendChild(svg);
 
-        // Sample 800 points along path for car positioning
-        const samples = 800;
-        pathPoints = [];
-        let minX = Infinity, maxX = -Infinity;
-        let minY = Infinity, maxY = -Infinity;
+            trackLength = 0;
+            try {
+                trackLength = path.getTotalLength();
+            } catch (e) {
+                console.warn('[TrackRenderer] Could not compute path length, using fallback');
+            }
 
-        for (let i = 0; i < samples; i++) {
-            const pt = path.getPointAtLength((i / samples) * trackLength);
-            pathPoints.push({ x: pt.x, y: pt.y, progress: i / samples });
-            if (pt.x < minX) minX = pt.x;
-            if (pt.x > maxX) maxX = pt.x;
-            if (pt.y < minY) minY = pt.y;
-            if (pt.y > maxY) maxY = pt.y;
+            if (!trackLength || trackLength <= 0) trackLength = 1000;
+
+            // Sample 800 points along path for car positioning
+            const samples = 800;
+            pathPoints = [];
+            let minX = Infinity, maxX = -Infinity;
+            let minY = Infinity, maxY = -Infinity;
+
+            for (let i = 0; i < samples; i++) {
+                try {
+                    const pt = path.getPointAtLength((i / samples) * trackLength);
+                    pathPoints.push({ x: pt.x, y: pt.y, progress: i / samples });
+                    if (pt.x < minX) minX = pt.x;
+                    if (pt.x > maxX) maxX = pt.x;
+                    if (pt.y < minY) minY = pt.y;
+                    if (pt.y > maxY) maxY = pt.y;
+                } catch (e) {
+                    // Fallback point
+                    pathPoints.push({ x: 350, y: 300, progress: i / samples });
+                }
+            }
+
+            if (minX !== Infinity && maxX !== -Infinity && minY !== Infinity && maxY !== -Infinity) {
+                pathWidth = Math.max(100, maxX - minX);
+                pathHeight = Math.max(100, maxY - minY);
+                centerX = (minX + maxX) / 2;
+                centerY = (minY + maxY) / 2;
+            } else {
+                pathWidth = 700;
+                pathHeight = 600;
+                centerX = 350;
+                centerY = 300;
+            }
+
+            trackPath = path;
+            document.body.removeChild(svg);
+        } catch (err) {
+            console.error('[TrackRenderer] buildPathData critical error:', err);
+            // Emergency fallback points
+            pathPoints = Array(800).fill(0).map((_, i) => ({ x: 350, y: 300, progress: i / 800 }));
         }
-
-        if (minX !== Infinity && maxX !== -Infinity && minY !== Infinity && maxY !== -Infinity) {
-            pathWidth = Math.max(100, maxX - minX);
-            pathHeight = Math.max(100, maxY - minY);
-            centerX = (minX + maxX) / 2;
-            centerY = (minY + maxY) / 2;
-        } else {
-            pathWidth = 700;
-            pathHeight = 600;
-            centerX = 350;
-            centerY = 300;
-        }
-
-        trackPath = path;
-        document.body.removeChild(svg);
     }
 
     /**
@@ -252,24 +276,35 @@ const TrackRenderer = (() => {
         staticCtx.shadowBlur = 15;
 
         // Track outline (thick)
-        const trackPath2D = new Path2D(track.svgPath);
         staticCtx.strokeStyle = '#FFFFFF';
         staticCtx.lineWidth = 14;
         staticCtx.lineJoin = 'round';
         staticCtx.lineCap = 'round';
-        staticCtx.stroke(trackPath2D);
+        
+        const drawPath = (ctx2d) => {
+            try {
+                const p2d = new Path2D(track.svgPath);
+                ctx2d.stroke(p2d);
+                return p2d;
+            } catch (e) {
+                console.warn('[TrackRenderer] Path2D failed');
+                return null;
+            }
+        };
 
+        const path2d = drawPath(staticCtx);
+        
         // Inner track (asphalt color)
         staticCtx.shadowBlur = 0;
         staticCtx.strokeStyle = '#1a1a1a';
         staticCtx.lineWidth = 10;
-        staticCtx.stroke(trackPath2D);
+        if (path2d) staticCtx.stroke(path2d);
 
         // Track edges (thin lines on top)
         staticCtx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
         staticCtx.lineWidth = 12;
         staticCtx.globalAlpha = 0.3;
-        staticCtx.stroke(trackPath2D);
+        if (path2d) staticCtx.stroke(path2d);
         staticCtx.globalAlpha = 1.0;
 
         staticCtx.restore();
@@ -340,99 +375,75 @@ const TrackRenderer = (() => {
         staticCtx.translate(offsetX, offsetY);
         staticCtx.scale(scale, scale);
 
-        const pl = track.pitLane;
-        const pitY = pl.startY - 32;
-        const pitLength = pl.endX - pl.startX;
+        const pitOffset = -22; 
+        staticCtx.lineJoin = 'round';
+        staticCtx.lineCap = 'round';
 
-        // Pit lane background (darker asphalt color)
-        staticCtx.fillStyle = 'rgba(40, 40, 45, 0.85)';
-        staticCtx.fillRect(pl.startX, pitY - 12, pitLength, 24);
-
-        // Pit lane outer borders (yellow lines)
-        staticCtx.strokeStyle = 'rgba(255, 215, 0, 0.6)';
-        staticCtx.lineWidth = 2;
+        // 1. Draw Pit Lane Background (Asphalt)
         staticCtx.beginPath();
-        staticCtx.moveTo(pl.startX, pitY - 12);
-        staticCtx.lineTo(pl.endX, pitY - 12);
-        staticCtx.moveTo(pl.startX, pitY + 12);
-        staticCtx.lineTo(pl.endX, pitY + 12);
+        staticCtx.lineWidth = 12;
+        staticCtx.strokeStyle = 'rgba(40, 40, 45, 0.9)';
+        
+        const samples = pathPoints.length;
+        if (samples === 0) return; // Prevent crash if points didn't build
+
+        const startIdx = Math.floor(0.97 * samples);
+        const endIdx = Math.floor(0.03 * samples);
+        
+        let first = true;
+        // Correct order: 0.97 -> 1.0, then 0.0 -> 0.03
+        for (let i = startIdx; i < samples + endIdx; i++) {
+            const idx = i % samples;
+            const prog = idx / samples;
+            const pt = pathPoints[idx];
+            const tangent = getTrackTangent(prog);
+            const normal = { x: -tangent.y, y: tangent.x };
+            const px = pt.x + normal.x * pitOffset;
+            const py = pt.y + normal.y * pitOffset;
+            
+            if (first) { staticCtx.moveTo(px, py); first = false; }
+            else { staticCtx.lineTo(px, py); }
+        }
         staticCtx.stroke();
 
-        // Central dashed line down the middle
-        staticCtx.setLineDash([10, 6]);
-        staticCtx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
-        staticCtx.lineWidth = 1.5;
-        staticCtx.beginPath();
-        staticCtx.moveTo(pl.startX, pitY);
-        staticCtx.lineTo(pl.endX, pitY);
-        staticCtx.stroke();
-        staticCtx.setLineDash([]);
+        // 2. Draw Pit Lane Borders (Yellow)
+        staticCtx.lineWidth = 1;
+        staticCtx.strokeStyle = 'rgba(255, 215, 0, 0.4)';
+        staticCtx.stroke(); 
 
-        // Pit boxes for teams (12 garages)
-        const numBoxes = 12;
-        const boxSpacing = pitLength / numBoxes;
+        // 3. Draw Pit Boxes (Garages)
         const teamColors = TEAMS_DATA.map(t => t.color);
-
-        for (let i = 0; i < numBoxes; i++) {
-            const x = pl.startX + boxSpacing * (i + 0.5);
-            const boxTopY = pitY - 12;
-            const teamColor = teamColors[i] || '#FFD700';
-
-            // Garage rear wall (darker)
-            staticCtx.fillStyle = 'rgba(20, 20, 20, 0.9)';
-            staticCtx.fillRect(x - 14, boxTopY - 22, 28, 22);
-
-            // Team color stripe at top
-            staticCtx.fillStyle = teamColor;
-            staticCtx.globalAlpha = 0.7;
-            staticCtx.fillRect(x - 14, boxTopY - 22, 28, 4);
-            staticCtx.globalAlpha = 1;
-
-            // Garage door outline
-            staticCtx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+        for (let i = 0; i < 12; i++) {
+            const boxProg = (0.97 + (0.06 * (i + 1) / 13)) % 1.0;
+            const idx = Math.floor(boxProg * samples);
+            const pt = pathPoints[idx];
+            const tangent = getTrackTangent(boxProg);
+            const normal = { x: -tangent.y, y: tangent.x };
+            const bx = pt.x + normal.x * pitOffset;
+            const by = pt.y + normal.y * pitOffset;
+            
+            staticCtx.save();
+            staticCtx.translate(bx, by);
+            staticCtx.rotate(Math.atan2(tangent.y, tangent.x));
+            
+            // Pit Box marker (aligned to lane)
+            staticCtx.fillStyle = 'rgba(255, 255, 255, 0.05)';
+            staticCtx.fillRect(-8, -5, 16, 10);
+            staticCtx.strokeStyle = teamColors[i] || '#FFD700';
             staticCtx.lineWidth = 1;
-            staticCtx.strokeRect(x - 14, boxTopY - 22, 28, 22);
-
-            // Pit box marker on lane (yellow rectangle)
-            staticCtx.fillStyle = 'rgba(255, 215, 0, 0.15)';
-            staticCtx.fillRect(x - 14, pitY - 6, 28, 12);
-
-            // Pit box border
-            staticCtx.strokeStyle = 'rgba(255, 215, 0, 0.8)';
-            staticCtx.lineWidth = 1;
-            staticCtx.strokeRect(x - 14, pitY - 6, 28, 12);
-
-            // Box number
-            staticCtx.fillStyle = 'rgba(255, 255, 255, 0.7)';
-            staticCtx.font = 'bold 8px "Orbitron", sans-serif';
-            staticCtx.textAlign = 'center';
-            staticCtx.fillText(`${i + 1}`, x, pitY + 2);
+            staticCtx.strokeRect(-8, -5, 16, 10);
+            
+            staticCtx.restore();
         }
 
-        // PIT ENTRY arrow
+        // 4. PIT ENTRY/EXIT Arrows
         staticCtx.fillStyle = 'rgba(0, 255, 65, 0.7)';
         staticCtx.font = 'bold 9px "Orbitron", sans-serif';
-        staticCtx.textAlign = 'left';
-        staticCtx.fillText('▶ PIT IN', pl.startX - 8, pitY - 18);
-
-        // PIT EXIT arrow
-        staticCtx.fillStyle = 'rgba(255, 0, 51, 0.7)';
-        staticCtx.textAlign = 'right';
-        staticCtx.fillText('PIT OUT ▶', pl.endX + 8, pitY - 18);
-
-        // Main "PIT LANE" label (large, prominent)
-        staticCtx.fillStyle = 'rgba(255, 215, 0, 0.95)';
-        staticCtx.font = 'bold 13px "Orbitron", sans-serif';
-        staticCtx.textAlign = 'center';
-        staticCtx.shadowColor = 'rgba(255, 215, 0, 0.5)';
-        staticCtx.shadowBlur = 8;
-        staticCtx.fillText('PIT LANE', (pl.startX + pl.endX) / 2, pitY - 36);
-        staticCtx.shadowBlur = 0;
-
-        // Speed limit indicator
-        staticCtx.fillStyle = 'rgba(255, 255, 255, 0.5)';
-        staticCtx.font = '8px "Rajdhani", sans-serif';
-        staticCtx.fillText('80 km/h limit', (pl.startX + pl.endX) / 2, pitY + 22);
+        
+        const entryPt = pathPoints[Math.floor(0.97 * samples)];
+        const entryTangent = getTrackTangent(0.97);
+        const entryNormal = { x: -entryTangent.y, y: entryTangent.x };
+        staticCtx.fillText('▶ PIT IN', entryPt.x + entryNormal.x * pitOffset - 8, entryPt.y + entryNormal.y * pitOffset - 10);
 
         staticCtx.restore();
     }
@@ -573,12 +584,15 @@ const TrackRenderer = (() => {
         staticCached = false;
     }
 
+    function getTrack() { return track; }
+
     return {
         init,
         resize,
         renderStatic,
         getTrackPosition,
         getTrackTangent,
+        getTrack,
         getCtx,
         getCanvasWidth,
         getCanvasHeight,

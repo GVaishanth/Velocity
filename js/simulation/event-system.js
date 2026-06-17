@@ -4,7 +4,7 @@
    mechanical failures, mistakes, weather changes
    ============================================ */
 
-const EventSystem = (() => {
+window.EventSystem = (() => {
 
     const EVENT_TYPES = {
         MECHANICAL_FAILURE: 'mechanical_failure',
@@ -25,6 +25,12 @@ const EventSystem = (() => {
      * Check for events for one car on one lap
      */
     function checkCarEvents(car, raceState, weatherState) {
+        // --- MULTIPLAYER AUTHORITY ---
+        // Clients skip event generation for everyone else to avoid desync
+        if (raceState.isMultiplayerRace && typeof OnlineManager !== 'undefined' && !OnlineManager.isHost()) {
+            return [];
+        }
+
         const events = [];
         const driver = car.driver;
         const carStats = car.carStats;
@@ -97,16 +103,22 @@ const EventSystem = (() => {
      * Calculate mechanical failure probability per lap
      */
     function checkMechanicalFailure(car) {
-        const reliability = car.carStats.reliability;
-        // Higher reliability = lower failure chance
-        // 90 reliability = 0.1% per lap
-        // 70 reliability = 0.3% per lap
-        // 50 reliability = 0.5% per lap
-        const baseChance = (100 - reliability) / 10000;
+        const reliability = car.carStats.reliability || 75;
+        const wear = car.mechanicalWear || 0;
+        const temp = car.engineTemp || 80;
 
-        // Push mode increases failure risk
-        let chance = baseChance;
-        if (car.drivingMode === 'PUSH') chance *= 1.3;
+        // Base chance from reliability stat
+        let chance = (100 - reliability) / 15000;
+
+        // Cumulative wear impact
+        chance += (wear / 100) * 0.05;
+
+        // Temperature impact (critical failures at high temp)
+        if (temp > 125) {
+            chance += 0.02; // Massive 2% per lap if critically overheating
+        } else if (temp > 110) {
+            chance += 0.002;
+        }
 
         return Math.random() < chance;
     }
@@ -323,6 +335,7 @@ const EventSystem = (() => {
         if (event.effects.dnf) {
             car.status = 'DNF';
             car.dnfReason = event.message;
+            car.dnfLap = event.lap; // Ensure lap is recorded
         }
 
         if (event.effects.timePenalty) {

@@ -6,7 +6,7 @@
    - Most races stay in the starting weather
    ============================================ */
 
-const WeatherSystem = (() => {
+window.WeatherSystem = (() => {
 
     const WEATHER_STATES = {
         DRY: {
@@ -237,6 +237,23 @@ const WeatherSystem = (() => {
         weatherState.lap = currentLap;
         weatherState.stableForLaps = currentLap - weatherState.lastChangeLap;
 
+        // Dynamic Temperature Evolution
+        // Air temp shifts slightly
+        weatherState.airTemp += (Math.random() - 0.5) * 0.2;
+        
+        // Track temp is affected by air temp, sun (DRY/CLOUDY), and rain
+        const weather = weatherState.current;
+        let targetTrackTemp = weatherState.airTemp + 10; // Base offset
+        
+        if (weather === 'DRY') targetTrackTemp += 15;
+        if (weather === 'CLOUDY') targetTrackTemp += 5;
+        if (weather === 'LIGHT_RAIN') targetTrackTemp -= 5;
+        if (weather === 'HEAVY_RAIN') targetTrackTemp -= 12;
+        
+        // Gradually move track temp toward target
+        const tempDiff = targetTrackTemp - weatherState.trackTemp;
+        weatherState.trackTemp += tempDiff * 0.05;
+
         let changed = false;
 
         // Check if any scheduled change should trigger
@@ -398,6 +415,7 @@ const WeatherSystem = (() => {
         updateLap,
         getDisplayInfo,
         getGripModifier,
+        getInitialWetness, // Exported
         getMistakeModifier,
         isWet,
         getOptimalCompound,

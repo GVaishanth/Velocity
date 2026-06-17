@@ -4,7 +4,7 @@
    Now includes Driver Market for hiring/firing
    ============================================ */
 
-const DashboardScreen = (() => {
+window.DashboardScreen = (() => {
 
     let container = null;
     let isActive = false;
@@ -40,12 +40,12 @@ const DashboardScreen = (() => {
             .filter(d => d.teamId === career.team.id)
             .map(d => ({
                 ...d,
-                position: career.championship.driverStandings
+                position: [...career.championship.driverStandings]
                     .sort((a, b) => b.points - a.points)
                     .findIndex(x => x.driverId === d.driverId) + 1
             }));
 
-        const playerConstructorPos = career.championship.constructorStandings
+        const playerConstructorPos = [...career.championship.constructorStandings]
             .sort((a, b) => b.points - a.points)
             .findIndex(c => c.teamId === career.team.id) + 1;
 
@@ -81,6 +81,11 @@ const DashboardScreen = (() => {
     }
 
     function renderActiveSeasonContent(career, nextTrack, playerDrivers, constructorPos) {
+        const isMulti = career.isMultiplayer;
+        const onlinePlayers = (typeof OnlineManager !== 'undefined') ? OnlineManager.getOnlinePlayers() : [];
+        const everyoneReady = onlinePlayers.every(p => p.isReadyForWeekend);
+        const myReady = onlinePlayers.find(p => p.username === OnlineManager.getMyUsername())?.isReadyForWeekend;
+
         return `
             <div class="dashboard-main-grid">
                 <!-- NEXT RACE CARD -->
@@ -118,9 +123,24 @@ const DashboardScreen = (() => {
                             </div>
                         </div>
 
-                        <button class="btn btn-primary btn-full btn-large" id="db-enter-race">
-                            🏁 ENTER RACE WEEKEND
-                        </button>
+                        ${isMulti ? `
+                            <div style="display: flex; flex-direction: column; gap: 10px; margin-bottom: 15px;">
+                                <div style="font-family: Orbitron; font-size: 11px; color: var(--gray-400); text-align: center;">CONSTRUCTOR READINESS (${onlinePlayers.filter(p => p.isReadyForWeekend).length}/${onlinePlayers.length})</div>
+                                <div style="display: flex; flex-wrap: wrap; gap: 4px; justify-content: center;">
+                                    ${onlinePlayers.map(p => `<div style="width: 8px; height: 8px; border-radius: 50%; background: ${p.isReadyForWeekend ? 'var(--green)' : 'var(--gray-700)'};" title="${p.username}"></div>`).join('')}
+                                </div>
+                            </div>
+                            <button class="btn btn-full ${myReady ? 'btn-danger' : 'btn-glow'}" id="db-mp-ready" style="margin-bottom: 10px; font-family: Orbitron; font-weight: 900;">
+                                ${myReady ? 'CANCEL READY' : '✓ READY FOR WEEKEND'}
+                            </button>
+                            <button class="btn btn-primary btn-full btn-large" id="db-enter-race" ${!everyoneReady ? 'disabled' : ''} style="${!everyoneReady ? 'opacity: 0.5; cursor: not-allowed;' : ''}">
+                                ${everyoneReady ? '🏁 LAUNCH RACE WEEKEND' : '⌛ WAITING FOR GRID...'}
+                            </button>
+                        ` : `
+                            <button class="btn btn-primary btn-full btn-large" id="db-enter-race">
+                                🏁 ENTER RACE WEEKEND
+                            </button>
+                        `}
                     ` : '<div>No upcoming races</div>'}
                 </div>
 
@@ -209,6 +229,11 @@ const DashboardScreen = (() => {
                             <div class="action-label" style="color: #0080FF;">Media Press Room</div>
                             <div class="action-sub">Resolve Live Mid-Week Dilemmas</div>
                         </button>
+                        <button class="action-btn" id="db-livery">
+                            <div class="action-icon">🎨</div>
+                            <div class="action-label" style="color: #FF00FF;">Livery Editor</div>
+                            <div class="action-sub">${career.livery?.changesThisSeason || 0}/2 Changes Used</div>
+                        </button>
                     </div>
                 </div>
 
@@ -224,10 +249,18 @@ const DashboardScreen = (() => {
                             const result = career.raceHistory?.[idx];
 
                             return `
-                                <div class="calendar-row ${isPast ? 'past' : ''} ${isCurrent ? 'current' : ''}">
+                                <div class="calendar-row ${isPast ? 'past' : ''} ${isCurrent ? 'current' : ''}" style="height: 60px;">
                                     <div class="cal-round">R${idx + 1}</div>
                                     <div class="cal-flag">${t.flag}</div>
-                                    <div class="cal-name">${escapeHTML(t.name)}</div>
+                                    <div class="cal-name" style="display: flex; align-items: center; gap: 10px;">
+                                        <svg viewBox="0 0 100 60" style="width: 40px; height: 25px; filter: drop-shadow(0 0 2px var(--green));">
+                                            <path d="${t.svgPath}" fill="none" stroke="var(--green)" stroke-width="3" transform="scale(0.12)" />
+                                        </svg>
+                                        <div>
+                                            <div>${escapeHTML(t.name)}</div>
+                                            <div style="font-size: 10px; color: var(--gray-500);">${t.laps} LAPS • ${t.length}km</div>
+                                        </div>
+                                    </div>
                                     <div class="cal-status">
                                         ${isPast && result ? `<span class="cal-result">P${result.playerBestPosition || '-'}</span>` :
                                           isCurrent ? '<span class="cal-next">NEXT</span>' :
@@ -306,16 +339,34 @@ const DashboardScreen = (() => {
     function attachContentListeners() {
         if (!container) return;
 
+        container.querySelector('#db-mp-ready')?.addEventListener('click', () => {
+            if (typeof OnlineManager !== 'undefined') OnlineManager.toggleWeekendReady();
+        });
+
         container.querySelector('#db-home-btn')?.addEventListener('click', () => {
             confirmLeave();
         });
 
         container.querySelector('#db-back-home')?.addEventListener('click', () => {
+            const isMulti = StateManager.get('career')?.isMultiplayer;
+            if (isMulti && typeof OnlineManager !== 'undefined') {
+                OnlineManager.cleanup(true);
+            }
             EventBus.emit('nav:home');
         });
 
         container.querySelector('#db-enter-race')?.addEventListener('click', () => {
-            EventBus.emit('nav:go', { screen: 'race-weekend', color: '#00FF41' });
+            const race = StateManager.get('race');
+            if (race && race.isMultiplayerRace) {
+                if (typeof OnlineManager !== 'undefined' && OnlineManager.isHost()) {
+                    OnlineManager.broadcastAction('START_WEEKEND', {});
+                    EventBus.emit('nav:go', { screen: 'race-weekend', color: '#00FF41' });
+                } else {
+                    Notifications.info('Waiting for Host', 'The Host must initiate the Race Weekend.');
+                }
+            } else {
+                EventBus.emit('nav:go', { screen: 'race-weekend', color: '#00FF41' });
+            }
         });
 
         container.querySelector('#db-next-season')?.addEventListener('click', () => {
@@ -348,6 +399,10 @@ const DashboardScreen = (() => {
 
         container.querySelector('#db-media')?.addEventListener('click', () => {
             if (typeof showMediaPressRoomModal === 'function') showMediaPressRoomModal();
+        });
+
+        container.querySelector('#db-livery')?.addEventListener('click', () => {
+            showLiveryEditorModal();
         });
     }
 
@@ -398,12 +453,233 @@ const DashboardScreen = (() => {
     }
 
     function attachRDUpgradeListeners() {
-        document.querySelectorAll('[data-upgrade]').forEach(btn => {
-            btn.addEventListener('click', () => {
-                const upgrade = JSON.parse(btn.dataset.upgrade);
-                applyUpgrade(upgrade);
+        const buttons = document.querySelectorAll('[data-upgrade]');
+        console.log(`[Dashboard] Attaching R&D listeners to ${buttons.length} buttons`);
+        buttons.forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                try {
+                    const upgrade = JSON.parse(btn.dataset.upgrade);
+                    applyUpgrade(upgrade);
+                } catch (err) {
+                    console.error('[Dashboard] R&D Parse Error:', err);
+                }
             });
         });
+    }
+
+    function getFuturisticCarSVG(options = {}) {
+        const { primary = '#0080FF', secondary = '#111', accent = '#FFF', mode = 'livery', view = 'side' } = options;
+        
+        const getPartColor = (partId) => {
+            if (mode === 'rd') return '#111';
+            // Mapping logic for livery
+            if (['f1-body', 'f1-body-side', 'f1-rw', 'f1-rw-pillar'].includes(partId)) return primary;
+            if (['f1-sidepods', 'f1-sidepods-side', 'f1-engine', 'f1-engine-side', 'f1-engine-cover'].includes(partId)) return secondary;
+            if (['f1-nose', 'f1-nose-side', 'f1-fw', 'f1-fw-side', 'f1-front-wing'].includes(partId)) return accent;
+            return '#050505';
+        };
+
+        const getStrokeColor = (partId) => {
+            if (mode === 'rd') return '#0080FF';
+            return 'rgba(255,255,255,0.2)';
+        };
+
+        if (view === 'top') {
+            return `
+                <svg viewBox="0 0 300 500" style="width: 100%; max-height: 400px; filter: drop-shadow(0 0 15px rgba(0,128,255,0.1));">
+                    <defs>
+                        <linearGradient id="grad-wire-top" x1="0%" y1="0%" x2="0%" y2="100%">
+                            <stop offset="0%" style="stop-color:#0080FF;stop-opacity:1" />
+                            <stop offset="100%" style="stop-color:#00D4FF;stop-opacity:1" />
+                        </linearGradient>
+                    </defs>
+                    <g transform="translate(150, 250) scale(0.9)">
+                        <!-- SYMMETRIC TOP VIEW (Centered at 0,0) -->
+                        
+                        <!-- WHEELS (TYRES) -->
+                        <g id="f1-wheels" class="f1-car-part">
+                            <!-- Rear -->
+                            <rect x="-135" y="100" width="45" height="90" rx="8" fill="#050505" stroke="${getStrokeColor('f1-wheels')}" stroke-width="1.5"/>
+                            <rect x="90" y="100" width="45" height="90" rx="8" fill="#050505" stroke="${getStrokeColor('f1-wheels')}" stroke-width="1.5"/>
+                            <!-- Front -->
+                            <rect x="-125" y="-180" width="40" height="75" rx="6" fill="#050505" stroke="${getStrokeColor('f1-wheels')}" stroke-width="1.5"/>
+                            <rect x="85" y="-180" width="40" height="75" rx="6" fill="#050505" stroke="${getStrokeColor('f1-wheels')}" stroke-width="1.5"/>
+                        </g>
+
+                        <!-- REAR WING (AERO) -->
+                        <rect id="f1-rear-wing" class="f1-car-part" x="-80" y="180" width="160" height="40" fill="${getPartColor('f1-rw')}" stroke="${getStrokeColor('f1-rear-wing')}" stroke-width="2"/>
+
+                        <!-- ENGINE COVER (POWERTRAIN) -->
+                        <path id="f1-engine" class="f1-car-part" d="M -40 180 L 40 180 L 35 0 L -35 0 Z" fill="${getPartColor('f1-engine')}" stroke="${getStrokeColor('f1-engine')}" stroke-width="2"/>
+
+                        <!-- SIDEPODS (AERO) -->
+                        <g id="f1-sidepods" class="f1-car-part">
+                            <path d="M -35 0 C -100 20, -100 120, -40 150 Z" fill="${getPartColor('f1-sidepods')}" stroke="${getStrokeColor('f1-sidepods')}" stroke-width="2"/>
+                            <path d="M 35 0 C 100 20, 100 120, 40 150 Z" fill="${getPartColor('f1-sidepods')}" stroke="${getStrokeColor('f1-sidepods')}" stroke-width="2"/>
+                        </g>
+
+                        <!-- COCKPIT & HALO (CHASSIS) -->
+                        <g id="f1-body" class="f1-car-part">
+                            <ellipse cx="0" cy="-20" rx="25" ry="50" fill="#080808" stroke="#FFF" stroke-width="1.5"/>
+                            <path d="M -25 -40 Q 0 -90, 25 -40" fill="none" stroke="#FFF" stroke-width="3" opacity="0.8"/>
+                        </g>
+
+                        <!-- NOSE (CHASSIS) -->
+                        <path id="f1-nose" class="f1-car-part" d="M -25 -70 L 25 -70 L 15 -210 L -15 -210 Z" fill="${getPartColor('f1-nose')}" stroke="${getStrokeColor('f1-nose')}" stroke-width="2"/>
+
+                        <!-- FRONT WING (AERO) -->
+                        <path id="f1-front-wing" class="f1-car-part" d="M -130 -240 L 130 -240 L 130 -210 L 80 -200 L -80 -200 L -130 -210 Z" fill="${getPartColor('f1-front-wing')}" stroke="${getStrokeColor('f1-front-wing')}" stroke-width="2"/>
+
+                        <!-- SUSPENSION ARMS (CHASSIS) -->
+                        <g id="f1-suspension" class="f1-car-part" stroke="${getStrokeColor('f1-suspension')}" stroke-width="1.5">
+                            <!-- Front -->
+                            <line x1="-15" y1="-180" x2="-85" y2="-150"/>
+                            <line x1="-15" y1="-150" x2="-85" y2="-150"/>
+                            <line x1="15" y1="-180" x2="85" y2="-150"/>
+                            <line x1="15" y1="-150" x2="85" y2="-150"/>
+                            <!-- Rear -->
+                            <line x1="-35" y1="140" x2="-90" y2="150"/>
+                            <line x1="35" y1="140" x2="90" y2="150"/>
+                        </g>
+
+                        <!-- COOLING (DURABILITY) -->
+                        <g id="f1-cooling" class="f1-car-part">
+                            <rect x="-30" y="50" width="60" height="30" fill="rgba(0,128,255,0.1)" stroke="${getStrokeColor('f1-cooling')}" stroke-width="1" stroke-dasharray="2 2"/>
+                        </g>
+                    </g>
+                </svg>
+            `;
+        }
+
+        // SIDE VIEW (For Livery Editor)
+        return `
+            <svg viewBox="0 0 600 220" style="width: 100%; filter: drop-shadow(0 0 20px rgba(0,0,0,0.8));">
+                <defs>
+                    <linearGradient id="wheel-shine" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" stop-color="#333" />
+                        <stop offset="50%" stop-color="#111" />
+                        <stop offset="100%" stop-color="#000" />
+                    </linearGradient>
+                </defs>
+                <g transform="translate(10, 10)">
+                    <!-- REAR WING ASSEMBLY -->
+                    <rect id="f1-rw-pillar-side" x="480" y="60" width="12" height="70" fill="${primary}" stroke="rgba(255,255,255,0.2)" />
+                    <path id="f1-rw-side" d="M 450 60 L 550 50 L 560 100 L 450 100 Z" fill="${primary}" stroke="rgba(255,255,255,0.3)" stroke-width="1.5"/>
+                    <rect x="490" y="55" width="40" height="5" fill="white" />
+
+                    <!-- WHEELS -->
+                    <g id="f1-wheels-side">
+                        <!-- Rear -->
+                        <circle cx="470" cy="160" r="55" fill="url(#wheel-shine)" stroke="#222" stroke-width="3"/>
+                        <circle cx="470" cy="160" r="22" fill="#080808" stroke="${accent}" stroke-width="2"/>
+                        <!-- Front -->
+                        <circle cx="120" cy="165" r="50" fill="url(#wheel-shine)" stroke="#222" stroke-width="3"/>
+                        <circle cx="120" cy="165" r="18" fill="#080808" stroke="${accent}" stroke-width="2"/>
+                    </g>
+
+                    <!-- CHASSIS BODY -->
+                    <path id="f1-body-side" d="M 80 150 L 150 160 L 380 160 L 480 140 L 480 80 L 380 85 L 150 90 L 80 140 Z" fill="${primary}" stroke="rgba(255,255,255,0.2)" stroke-width="1"/>
+
+                    <!-- SIDEPODS -->
+                    <path id="f1-sidepods-side" d="M 180 100 Q 220 165, 380 155 L 360 100 Z" fill="${secondary}" stroke="rgba(255,255,255,0.1)"/>
+
+                    <!-- ENGINE COVER & FIN -->
+                    <path id="f1-engine-side" d="M 300 90 Q 330 40, 380 80 L 480 75 L 480 120 L 380 130 Z" fill="${secondary}" stroke="rgba(255,255,255,0.1)"/>
+                    <path d="M 380 50 L 470 75 L 380 80 Z" fill="${secondary}" opacity="0.6" />
+
+                    <!-- FRONT WING -->
+                    <path id="f1-fw-side" d="M 0 140 L 100 155 L 100 175 L 0 165 Z" fill="${accent}" stroke="rgba(255,255,255,0.3)"/>
+                    
+                    <!-- NOSE CONE -->
+                    <path id="f1-nose-side" d="M 100 155 L 180 95 L 200 125 L 100 175 Z" fill="${accent}" stroke="rgba(255,255,255,0.2)"/>
+
+                    <!-- COCKPIT & HALO -->
+                    <path d="M 220 95 C 220 40, 340 40, 340 95" fill="none" stroke="#FFF" stroke-width="4" opacity="0.8"/>
+                    <ellipse cx="280" cy="95" rx="40" ry="12" fill="rgba(0,0,0,0.6)" stroke="#0080FF" stroke-width="2"/>
+                </g>
+            </svg>
+        `;
+    }
+
+    function updateRDCarHighlight(dept) {
+        const partsMap = {
+            'AERODYNAMICS': ['f1-front-wing', 'f1-rear-wing', 'f1-sidepods'],
+            'POWERTRAIN': ['f1-engine'],
+            'DURABILITY': ['f1-cooling'],
+            'CHASSIS': ['f1-nose', 'f1-body', 'f1-suspension'],
+            'TYRES': ['f1-wheels']
+        };
+
+        // Select parts in the TOP VIEW SVG
+        document.querySelectorAll('.f1-car-part').forEach(p => {
+            p.style.filter = '';
+            p.style.stroke = '#0080FF';
+            p.style.strokeWidth = '2';
+            if (p.tagName === 'line') p.style.strokeWidth = '1.5';
+        });
+
+        const parts = partsMap[dept] || [];
+        parts.forEach(id => {
+            const el = document.getElementById(id);
+            if (el) {
+                el.style.filter = 'drop-shadow(0 0 12px #00FF41)';
+                el.style.stroke = '#00FF41';
+                el.style.strokeWidth = '4';
+                if (el.tagName === 'line') el.style.strokeWidth = '3';
+            }
+        });
+    }
+
+    function applyUpgrade(upgrade) {
+        const career = StateManager.get('career');
+        if (!career || !upgrade) return;
+
+        if (career.rdPoints < upgrade.rdCost || career.budget < upgrade.moneyCost) {
+            Notifications.error('Insufficient Resources', 'You need both R&D Points and Budget.');
+            return;
+        }
+
+        // Deduct resources
+        career.rdPoints -= upgrade.rdCost;
+        career.budget -= upgrade.moneyCost;
+        
+        // Apply stat gain
+        const currentVal = career.carStats[upgrade.stat] || 70;
+        career.carStats[upgrade.stat] = Math.min(99, currentVal + upgrade.gain);
+        
+        // Record for visual highlight
+        career.lastUpgradedPart = upgrade.dept;
+
+        // Sync to allTeams for the race engine
+        const playerTeam = career.allTeams?.find(t => t.id === career.team.id);
+        if (playerTeam) {
+            playerTeam.carStats = { ...career.carStats };
+        }
+
+        StateManager.set('career', career);
+        StateManager.saveGame();
+
+        if (typeof AudioManager !== 'undefined') AudioManager.uiConfirm();
+        Notifications.success(`Upgraded ${upgrade.name}`, `+${upgrade.gain} ${formatStatName(upgrade.stat)} confirmed.`);
+
+        // In-place UI Updates
+        const modalHeader = document.getElementById('modal-header');
+        if (modalHeader) {
+            modalHeader.textContent = `Car Development • ${career.rdPoints} Pts • $${formatMoney(career.budget)}`;
+        }
+
+        const list = document.getElementById('rd-upgrades-list');
+        if (list) {
+            list.innerHTML = renderUpgradesListHTML(career);
+            attachRDUpgradeListeners();
+        }
+
+        // Visual Highlight
+        updateRDCarHighlight(upgrade.dept);
+
+        // Silent dashboard refresh
+        render();
     }
 
     function showRDModal() {
@@ -415,42 +691,17 @@ const DashboardScreen = (() => {
             title: `Car Development • ${rdPoints} Pts • $${formatMoney(budget)}`,
             body: `
                 <div style="display: flex; flex-direction: column; gap: var(--space-lg); max-width: 650px;">
-                    <!-- SPECTACULAR F1 CAR CHASSIS DIAGRAM -->
                     <div style="text-align: center; position: relative; background: radial-gradient(circle, rgba(0,128,255,0.15) 0%, rgba(0,0,0,0.8) 70%); border-radius: var(--radius-lg); border: 1px solid rgba(0,128,255,0.3); padding: 16px; box-shadow: 0 0 30px rgba(0,128,255,0.2); overflow: hidden;">
-                        <div style="font-family: Orbitron; font-size: 10px; font-weight: 900; color: var(--blue); letter-spacing: 4px; position: absolute; top: 12px; left: 16px;">⚡ CAR CHASSIS WIREFRAME</div>
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 220" style="width: 100%; max-height: 180px; filter: drop-shadow(0 0 12px rgba(0,255,65,0.4)); margin-top: 10px;">
-                            <!-- Central floor / spine -->
-                            <path d="M 120 110 L 220 80 L 460 80 L 520 100 L 520 120 L 460 140 L 220 140 Z" fill="none" stroke="#00FF41" stroke-width="2" stroke-dasharray="4 2" />
-                            <!-- Front Nose & Wing -->
-                            <path d="M 60 90 L 120 105 L 120 115 L 60 130 L 50 130 L 50 90 Z" fill="rgba(0,255,65,0.2)" stroke="#00FF41" stroke-width="3" />
-                            <line x1="80" y1="80" x2="80" y2="140" stroke="#00FF41" stroke-width="4" />
-                            <!-- Cockpit & Halo -->
-                            <ellipse cx="280" cy="110" rx="35" ry="20" fill="rgba(0,128,255,0.3)" stroke="#0080FF" stroke-width="3" />
-                            <path d="M 255 110 C 255 90 305 90 305 110 C 305 130 255 130 255 110" fill="none" stroke="#FFFFFF" stroke-width="4" />
-                            <!-- Sidepods -->
-                            <path d="M 290 75 L 420 70 L 440 85 L 420 95 L 290 95 Z" fill="rgba(255,215,0,0.2)" stroke="#FFD700" stroke-width="2" />
-                            <path d="M 290 145 L 420 150 L 440 135 L 420 125 L 290 125 Z" fill="rgba(255,215,0,0.2)" stroke="#FFD700" stroke-width="2" />
-                            <!-- Powertrain Deck -->
-                            <rect x="330" y="100" width="100" height="20" fill="rgba(255,0,51,0.3)" stroke="#FF0033" stroke-width="2" />
-                            <polygon points="360,95 380,95 390,110 380,125 360,125" fill="#FF0033" />
-                            <!-- Rear Wing -->
-                            <rect x="520" y="70" width="30" height="80" fill="rgba(0,255,65,0.3)" stroke="#00FF41" stroke-width="4" />
-                            <line x1="500" y1="110" x2="535" y2="110" stroke="#FFFFFF" stroke-width="6" />
-                            <!-- Front Wide Tires -->
-                            <rect x="140" y="45" width="55" height="28" rx="6" fill="#111111" stroke="#FFD700" stroke-width="3" />
-                            <rect x="140" y="147" width="55" height="28" rx="6" fill="#111111" stroke="#FFD700" stroke-width="3" />
-                            <line x1="167" y1="73" x2="167" y2="108" stroke="#FFFFFF" stroke-width="4" />
-                            <line x1="167" y1="112" x2="167" y2="147" stroke="#FFFFFF" stroke-width="4" />
-                            <!-- Rear Wide Tires -->
-                            <rect x="450" y="35" width="65" height="34" rx="8" fill="#111111" stroke="#FFD700" stroke-width="3" />
-                            <rect x="450" y="151" width="65" height="34" rx="8" fill="#111111" stroke="#FFD700" stroke-width="3" />
-                            <line x1="482" y1="69" x2="482" y2="85" stroke="#FFFFFF" stroke-width="5" />
-                            <line x1="482" y1="135" x2="482" y2="151" stroke="#FFFFFF" stroke-width="5" />
-                        </svg>
+                        <div style="font-family: Orbitron; font-size: 10px; font-weight: 900; color: var(--blue); letter-spacing: 4px; position: absolute; top: 12px; left: 16px;">⚡ TOP-DOWN CHASSIS ANALYSIS</div>
+                        
+                        <div id="rd-car-preview-container">
+                            ${getFuturisticCarSVG({ mode: 'rd', view: 'top' })}
+                        </div>
+
                         <div style="display: flex; justify-content: space-around; font-family: Rajdhani; font-size: 11px; font-weight: 700; color: var(--gray-400); margin-top: 6px;">
-                            <span>🛞 High-Downforce Aero</span>
-                            <span>⚡ 1000HP V6 Powertrain</span>
-                            <span>🛡️ Carbon Composite Chassis</span>
+                            <span>🛞 SYM-GRIP AXLES</span>
+                            <span>⚡ CORE HYBRID UNIT</span>
+                            <span>🛡️ STRUCTURAL CELL</span>
                         </div>
                     </div>
 
@@ -465,46 +716,11 @@ const DashboardScreen = (() => {
             ],
             onOpen: () => {
                 attachRDUpgradeListeners();
+                if (career.lastUpgradedPart) {
+                    updateRDCarHighlight(career.lastUpgradedPart);
+                }
             }
         });
-    }
-
-    function applyUpgrade(upgrade) {
-        const career = StateManager.get('career');
-        if (career.rdPoints < upgrade.rdCost || career.budget < upgrade.moneyCost) {
-            Notifications.error('Insufficient Resources', 'You need both R&D Points and Budget.');
-            return;
-        }
-
-        career.rdPoints -= upgrade.rdCost;
-        career.budget -= upgrade.moneyCost;
-        career.carStats[upgrade.stat] = Math.min(98, career.carStats[upgrade.stat] + upgrade.gain);
-
-        const playerTeam = career.allTeams?.find(t => t.id === career.team.id);
-        if (playerTeam) {
-            playerTeam.carStats = { ...career.carStats };
-        }
-
-        StateManager.set('career', career);
-        StateManager.saveGame();
-
-        if (typeof AudioManager !== 'undefined') AudioManager.uiConfirm();
-        Notifications.success(`+${upgrade.gain} ${formatStatName(upgrade.stat)} Built!`, upgrade.name);
-
-        // Sub-millisecond seamless in-place DOM updates without re-opening or popping up the modal!
-        const modalHeaderEl = document.getElementById('modal-header');
-        if (modalHeaderEl) {
-            modalHeaderEl.textContent = `Car Development • ${career.rdPoints} Pts • $${formatMoney(career.budget)}`;
-        }
-
-        const upgradesListEl = document.getElementById('rd-upgrades-list');
-        if (upgradesListEl) {
-            upgradesListEl.innerHTML = renderUpgradesListHTML(career);
-            attachRDUpgradeListeners();
-        }
-
-        // Refresh underlying dashboard graphics silently
-        render();
     }
 
     /* === DRIVER MARKET MODAL === */
@@ -777,6 +993,149 @@ const DashboardScreen = (() => {
         });
     }
 
+    function showLiveryEditorModal() {
+        const career = StateManager.get('career');
+        const livery = career.livery || { primary: career.team.color, secondary: '#111111', accent: '#FFFFFF', pattern: 'solid', changesThisSeason: 0 };
+        const LIVERY_UPDATE_COST = 5000000; // $5M
+        const MAX_CHANGES = 2;
+
+        const canChange = livery.changesThisSeason < MAX_CHANGES && career.budget >= LIVERY_UPDATE_COST;
+
+        Modals.open({
+            title: `🎨 LIVERY EDITOR — SESSION USAGE: ${livery.changesThisSeason}/${MAX_CHANGES}`,
+            className: 'modal-lg',
+            body: `
+                <div style="display: flex; flex-direction: column; gap: 20px; font-family: 'Rajdhani', sans-serif;">
+                    <p style="color: var(--gray-300); font-size: 15px; border-bottom: 1px solid var(--border-subtle); padding-bottom: 12px;">
+                        Redesign your Constructor's visual identity. Official FIA regulations limit major livery overhauls to <b>twice per season</b>.
+                    </p>
+
+                    <div style="display: grid; grid-template-columns: 1.5fr 1fr; gap: 24px;">
+                        <!-- PREVIEW -->
+                        <div style="background: #050505; border: 2px solid var(--border-subtle); border-radius: 12px; padding: 20px; display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative; overflow: hidden;">
+                            <div style="font-family: Orbitron; font-size: 10px; color: var(--gray-500); position: absolute; top: 10px; left: 10px;">LIVE WIND TUNNEL PREVIEW</div>
+                            
+                            <div id="livery-car-preview-container" style="width: 100%;">
+                                ${getFuturisticCarSVG({ 
+                                    primary: livery.primary, 
+                                    secondary: livery.secondary, 
+                                    accent: livery.accent,
+                                    mode: 'livery'
+                                })}
+                            </div>
+
+                            <div style="margin-top: 20px; display: flex; gap: 10px;">
+                                <div style="width: 30px; height: 30px; border-radius: 4px; background: ${livery.primary}; border: 1px solid white;" id="swatch-p"></div>
+                                <div style="width: 30px; height: 30px; border-radius: 4px; background: ${livery.secondary}; border: 1px solid white;" id="swatch-s"></div>
+                                <div style="width: 30px; height: 30px; border-radius: 4px; background: ${livery.accent}; border: 1px solid white;" id="swatch-a"></div>
+                            </div>
+                        </div>
+
+                        <!-- CONTROLS -->
+                        <div style="display: flex; flex-direction: column; gap: 15px;">
+                            <div class="form-group">
+                                <label class="form-label">PRIMARY COLOR (BODY)</label>
+                                <input type="color" class="input" id="livery-primary" value="${livery.primary}" style="height: 40px; padding: 2px;">
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">SECONDARY COLOR (SIDEPODS)</label>
+                                <input type="color" class="input" id="livery-secondary" value="${livery.secondary}" style="height: 40px; padding: 2px;">
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">ACCENT COLOR (NOSE)</label>
+                                <input type="color" class="input" id="livery-accent" value="${livery.accent}" style="height: 40px; padding: 2px;">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div style="margin-top: 10px; padding: 15px; background: rgba(255,255,255,0.05); border-radius: 8px; border-left: 4px solid #FF00FF;">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <div>
+                                <div style="font-family: Orbitron; font-size: 12px; font-weight: 900; color: #FFF;">MODIFICATION COST: <span style="color: var(--red);">$${formatMoney(LIVERY_UPDATE_COST)}</span></div>
+                                <div style="font-size: 11px; color: var(--gray-400);">Current Budget: $${formatMoney(career.budget)}</div>
+                            </div>
+                            ${livery.changesThisSeason >= MAX_CHANGES ? 
+                                `<span style="color: var(--red); font-family: Orbitron; font-weight: 900; font-size: 12px;">SEASON LIMIT REACHED</span>` :
+                                (career.budget < LIVERY_UPDATE_COST ? 
+                                    `<span style="color: var(--red); font-family: Orbitron; font-weight: 900; font-size: 12px;">INSUFFICIENT FUNDS</span>` :
+                                    `<button class="btn btn-glow" id="btn-apply-livery" style="border-color: #FF00FF; color: #FF00FF;">APPLY OVERHAUL</button>`)
+                            }
+                        </div>
+                    </div>
+                </div>
+            `,
+            actions: [{ label: 'Discard Changes', type: 'secondary' }],
+            onOpen: () => {
+                const pInput = document.getElementById('livery-primary');
+                const sInput = document.getElementById('livery-secondary');
+                const aInput = document.getElementById('livery-accent');
+                
+                const sP = document.getElementById('swatch-p');
+                const sS = document.getElementById('swatch-s');
+                const sA = document.getElementById('swatch-a');
+
+                const updatePreview = () => {
+                    const primary = pInput.value;
+                    const secondary = sInput.value;
+                    const accent = aInput.value;
+
+                    // Update UI Swatches
+                    if (sP) sP.style.backgroundColor = primary;
+                    if (sS) sS.style.backgroundColor = secondary;
+                    if (sA) sA.style.backgroundColor = accent;
+
+                    // Update SVG Parts (Side View)
+                    const body = document.getElementById('f1-body-side');
+                    const rw = document.getElementById('f1-rw-side');
+                    const rwPillar = document.getElementById('f1-rw-pillar-side');
+                    const sidepods = document.getElementById('f1-sidepods-side');
+                    const engine = document.getElementById('f1-engine-side');
+                    const nose = document.getElementById('f1-nose-side');
+                    const fw = document.getElementById('f1-fw-side');
+
+                    if (body) body.setAttribute('fill', primary);
+                    if (rw) rw.setAttribute('fill', primary);
+                    if (rwPillar) rwPillar.setAttribute('fill', primary);
+                    if (sidepods) sidepods.setAttribute('fill', secondary);
+                    if (engine) engine.setAttribute('fill', secondary);
+                    if (nose) nose.setAttribute('fill', accent);
+                    if (fw) fw.setAttribute('fill', accent);
+                };
+
+                pInput?.addEventListener('input', updatePreview);
+                sInput?.addEventListener('input', updatePreview);
+                aInput?.addEventListener('input', updatePreview);
+
+                document.getElementById('btn-apply-livery')?.addEventListener('click', () => {
+                    const newLivery = {
+                        primary: pInput.value,
+                        secondary: sInput.value,
+                        accent: aInput.value,
+                        pattern: 'solid',
+                        changesThisSeason: livery.changesThisSeason + 1
+                    };
+
+                    career.budget -= LIVERY_UPDATE_COST;
+                    career.livery = newLivery;
+                    StateManager.set('career', career);
+                    StateManager.saveGame();
+
+                    if (typeof AudioManager !== 'undefined') AudioManager.uiConfirm();
+                    Notifications.success('Livery Updated!', 'Constructor visual identity synchronized.');
+                    
+                    // --- MULTIPLAYER SYNC: Broadcast Livery Overhaul ---
+                    const race = StateManager.get('race');
+                    if (race && race.isMultiplayerRace && typeof OnlineManager !== 'undefined') {
+                        OnlineManager.broadcastAction('LIVERY_UPDATE', { livery: newLivery });
+                    }
+                    
+                    Modals.close();
+                    render();
+                });
+            }
+        });
+    }
+
     /* === STANDINGS / TEAM / HISTORY === */
 
     function showStandingsModal() {
@@ -1023,21 +1382,62 @@ const DashboardScreen = (() => {
         const history = career.raceHistory || [];
 
         Modals.open({
-            title: 'Race History',
+            title: 'Championship Race History',
+            className: 'modal-lg',
             body: history.length === 0 ? '<p style="color: var(--gray-500); text-align: center; padding: var(--space-xl);">No races completed yet.</p>' : `
-                <div style="display: flex; flex-direction: column; gap: 4px;">
+                <div style="display: flex; flex-direction: column; gap: 10px; max-height: 500px; overflow-y: auto; padding-right: 10px;">
                     ${history.map((r, idx) => {
                         const track = getTrackById(r.trackId);
+                        const results = r.fullResults || [];
                         return `
-                            <div style="display: flex; padding: var(--space-sm) var(--space-md); background: var(--surface-1); border-radius: 4px; align-items: center; gap: var(--space-sm);">
-                                <span style="font-family: 'Orbitron'; color: var(--gray-500); width: 30px;">R${idx + 1}</span>
-                                <span>${track?.flag || ''}</span>
-                                <span style="flex: 1; font-family: 'Rajdhani'; font-size: 13px;">${escapeHTML(track?.name || 'Unknown')}</span>
-                                <span style="color: var(--green); font-family: 'Orbitron'; font-weight: 700;">P${r.playerBestPosition || '-'}</span>
-                            </div>
+                            <details class="history-item-details" style="background: var(--surface-1); border-radius: 8px; border: 1px solid var(--border-subtle); overflow: hidden;">
+                                <summary style="display: flex; padding: 12px 16px; align-items: center; gap: 15px; cursor: pointer; list-style: none; user-select: none;">
+                                    <span style="font-family: 'Orbitron'; color: var(--gray-500); width: 35px; font-weight: 800;">R${r.round || idx + 1}</span>
+                                    <span style="font-size: 20px;">${track?.flag || '🏁'}</span>
+                                    <div style="flex: 1;">
+                                        <div style="font-family: 'Rajdhani'; font-weight: 700; font-size: 15px; color: #FFF;">${escapeHTML(track?.name || 'Unknown Grand Prix')}</div>
+                                        <div style="font-family: 'Rajdhani'; font-size: 12px; color: var(--gray-500);">${escapeHTML(track?.country || 'Global')}</div>
+                                    </div>
+                                    <div style="text-align: right;">
+                                        <div style="color: var(--green); font-family: 'Orbitron'; font-weight: 900; font-size: 18px;">P${r.playerBestPosition || '-'}</div>
+                                        <div style="font-size: 10px; color: var(--gray-500); font-family: Orbitron;">BEST POS</div>
+                                    </div>
+                                    <span class="dropdown-arrow" style="font-size: 10px; color: var(--gray-600); margin-left: 10px;">▼</span>
+                                </summary>
+                                <div style="padding: 0 16px 16px; border-top: 1px solid rgba(255,255,255,0.05); background: rgba(0,0,0,0.2);">
+                                    <table style="width: 100%; border-collapse: collapse; margin-top: 10px; font-family: 'Rajdhani'; font-size: 13px;">
+                                        <thead>
+                                            <tr style="text-align: left; color: var(--gray-500); font-size: 10px; font-family: Orbitron; border-bottom: 1px solid var(--border-subtle);">
+                                                <th style="padding: 5px;">POS</th>
+                                                <th>DRIVER</th>
+                                                <th>TEAM</th>
+                                                <th style="text-align: right; padding-right: 5px;">PTS</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            ${results.map(res => {
+                                                const isPlayer = res.team?.id === career.team?.id;
+                                                return `
+                                                    <tr style="border-bottom: 1px solid rgba(255,255,255,0.02); ${isPlayer ? 'background: rgba(0,255,65,0.05); color: #00FF41;' : 'color: #CCC;'}">
+                                                        <td style="padding: 8px 5px; font-family: Orbitron; font-weight: 700;">${res.position}</td>
+                                                        <td>${escapeHTML(res.driver?.name)}</td>
+                                                        <td style="font-size: 11px; opacity: 0.8;">${escapeHTML(res.team?.shortName || res.team?.name)}</td>
+                                                        <td style="text-align: right; padding-right: 5px; font-weight: 800;">${res.points || 0}</td>
+                                                    </tr>
+                                                `;
+                                            }).join('')}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </details>
                         `;
                     }).join('')}
                 </div>
+                <style>
+                    .history-item-details summary::-webkit-details-marker { display: none; }
+                    .history-item-details[open] .dropdown-arrow { transform: rotate(180deg); }
+                    .history-item-details:hover { border-color: var(--green); }
+                </style>
             `,
             actions: [{ label: 'Close', type: 'secondary' }]
         });
@@ -1076,9 +1476,23 @@ const DashboardScreen = (() => {
 
         career.season++;
         career.currentRound = 0;
+        if (career.livery) career.livery.changesThisSeason = 0;
         career.rdPoints = (career.rdPoints || 0) + 1500;
         career.budget = (career.budget || 0) + 35000000;
         career._lastSponsorOutcome = null;
+
+        // --- SILLY SEASON: Reshuffle AI Grid ---
+        if (typeof SillySeason !== 'undefined') {
+            const newGrid = SillySeason.processSeasonEnd(career);
+            if (newGrid) {
+                career.allTeams = newGrid;
+                // Re-initialize standings for the new grid
+                if (typeof StateManager !== 'undefined' && StateManager.initChampionshipStandings) {
+                    career.championship = StateManager.initChampionshipStandings(newGrid);
+                }
+            }
+        }
+
         career.schedule = TRACKS_DATA
             .sort(() => Math.random() - 0.5)
             .slice(0, career.totalRounds)
@@ -1094,16 +1508,41 @@ const DashboardScreen = (() => {
         StateManager.set('career', career);
         StateManager.saveGame();
 
-        Notifications.success(`Season ${career.season} begins!`);
+        // --- SILLY SEASON SUMMARY ---
+        if (typeof Notifications !== 'undefined') {
+            Notifications.success(`Season ${career.season} begins!`, 'The driver market has been reshuffled.');
+            
+            // Randomly highlight a major move if any
+            const playerTeamId = career.team.id;
+            const majorMoves = [];
+            career.allTeams.forEach(t => {
+                if (t.id !== playerTeamId) {
+                    t.drivers.forEach(d => {
+                        if (d.rating > 85) majorMoves.push(`${d.name} is now with ${t.name}`);
+                    });
+                }
+            });
+            if (majorMoves.length > 0) {
+                const move = majorMoves[Math.floor(Math.random() * majorMoves.length)];
+                setTimeout(() => Notifications.info('Transfer News', move), 2000);
+            }
+        }
+
         render();
     }
 
     function confirmLeave() {
+        const isMulti = StateManager.get('career')?.isMultiplayer;
         Modals.confirm({
-            title: 'Return Home?',
-            body: 'Your career is auto-saved. You can continue anytime from Single Player.',
-            confirmText: 'Return Home',
-            onConfirm: () => EventBus.emit('nav:home')
+            title: isMulti ? 'Leave Online Championship?' : 'Return Home?',
+            body: isMulti ? 'This will terminate your connection to the grid. You cannot resume this specific online session later.' : 'Your career is auto-saved. You can continue anytime from Single Player.',
+            confirmText: isMulti ? 'LEAVE GRID' : 'Return Home',
+            onConfirm: () => {
+                if (isMulti && typeof OnlineManager !== 'undefined') {
+                    OnlineManager.cleanup(true); // True = Clear session
+                }
+                EventBus.emit('nav:home');
+            }
         });
     }
 
@@ -1495,7 +1934,9 @@ const DashboardScreen = (() => {
         document.head.appendChild(style);
     }
 
+    function isPageActive() { return isActive; }
+
     function destroy() { isActive = false; }
 
-    return { init, render, destroy };
+    return { init, render, isPageActive, destroy };
 })();

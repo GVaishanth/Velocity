@@ -4,7 +4,7 @@
    3-Round Knockout Qualifying (Q1, Q2, Q3) → Strategy
    ============================================ */
 
-const RaceWeekendScreen = (() => {
+window.RaceWeekendScreen = (() => {
 
     let container = null;
     let isActive = false;
@@ -41,6 +41,37 @@ const RaceWeekendScreen = (() => {
         container = document.getElementById('race-weekend-content');
         if (!container) return;
         attachListeners();
+    }
+
+    function setStage(stage) {
+        currentStage = stage;
+        render();
+    }
+
+    function syncQuali(data) {
+        // ... (existing)
+    }
+
+    function syncSession(data) {
+        practiceState.progress = data.progress;
+        if (practiceState.progress >= 15) {
+            practiceState.isRunning = false;
+        }
+        render();
+    }
+
+    function remoteStartSession() {
+        if (!practiceState.isRunning) {
+            practiceState.isRunning = true;
+            render();
+        }
+    }
+
+    function remoteResetSession(session) {
+        practiceState.session = session;
+        practiceState.progress = 0;
+        practiceState.standings.forEach(s => { s.bestTime = null; s.laps = 0; });
+        render();
     }
 
     function attachListeners() {
@@ -100,8 +131,7 @@ const RaceWeekendScreen = (() => {
     function renderIntroView(track, career) {
         container.innerHTML = `
             <div class="rw-container">
-                <button class="home-btn" id="rw-home-btn" style="z-index: 50;">⌂</button>
-
+                
                 <div class="rw-stage-header">
                     <div class="rw-stage-label">GRAND PRIX WEEKEND • Intro</div>
                     <div class="rw-stage-title">ROUND ${career.currentRound + 1} OF ${career.totalRounds}</div>
@@ -217,8 +247,7 @@ const RaceWeekendScreen = (() => {
     function renderPracticeView(track, career) {
         container.innerHTML = `
             <div class="rw-container">
-                <button class="home-btn" id="rw-home-btn" style="z-index: 50;">⌂</button>
-
+                
                 <div class="rw-stage-header">
                     <div class="rw-stage-label">FREE PRACTICE • Medium Compound Default</div>
                     <div class="rw-stage-title" style="color: ${practiceState.session === 'FP1' ? 'var(--blue)' : 'var(--yellow)'};">${practiceState.session} PRACTICE SESSION</div>
@@ -255,9 +284,9 @@ const RaceWeekendScreen = (() => {
 
                     <!-- SESSION CONTROLS -->
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 32px;">
-                        <button class="btn" id="fp-back">← ABORT TO DASHBOARD</button>
-                        <button class="btn btn-yellow" id="fp-skip-all" style="padding: 16px 24px; font-family: Orbitron; font-weight: 900;">⚡ SKIP DIRECTLY TO QUALIFYING</button>
-                        <button class="btn ${practiceState.isRunning ? 'btn-danger' : 'btn-glow'}" id="fp-action-btn" style="padding: 16px 32px; font-family: Orbitron; font-weight: 900; font-size: 16px;">
+                    <button class="btn" id="fp-back">← ABORT TO DASHBOARD</button>
+                    ${StateManager.get('race')?.isMultiplayerRace ? `<div style="font-family: Orbitron; font-weight: 900; color: var(--yellow);" id="mp-session-wait">WAITING FOR GRID...</div>` : `<button class="btn btn-yellow" id="fp-skip-all" style="padding: 16px 24px; font-family: Orbitron; font-weight: 900;">⚡ SKIP DIRECTLY TO QUALIFYING</button>`}
+                    <button class="btn ${practiceState.isRunning ? 'btn-danger' : 'btn-glow'}" id="fp-action-btn" style="padding: 16px 32px; font-family: Orbitron; font-weight: 900; font-size: 16px;">
                             ${practiceState.progress >= 15 ? (practiceState.session === 'FP1' ? '🏁 PROCEED TO FP2 SESSION' : '🏁 PROCEED TO QUALIFIERS') : practiceState.isRunning ? '⏳ SIMULATING 15s SESSION...' : `⚡ LAUNCH ${practiceState.session} SESSION (15s)`}
                         </button>
                     </div>
@@ -277,18 +306,29 @@ const RaceWeekendScreen = (() => {
             render();
         });
         container.querySelector('#fp-action-btn')?.addEventListener('click', () => {
+            const isMulti = StateManager.get('race')?.isMultiplayerRace;
+            const isHost = typeof OnlineManager !== 'undefined' && OnlineManager.isHost();
+
+            if (isMulti && !isHost) {
+                Notifications.info('Waiting for Host', 'The Host must initiate the session.');
+                return;
+            }
+
             if (practiceState.progress >= 15) {
                 if (practiceState.session === 'FP1') {
                     practiceState.session = 'FP2';
                     practiceState.progress = 0;
                     practiceState.standings.forEach(s => { s.bestTime = null; s.laps = 0; });
+                    if (isMulti && isHost) OnlineManager.broadcastAction('SESSION_RESET', { session: 'FP2' });
                     render();
                 } else {
                     currentStage = 'qualifying';
                     initQualiState(career);
+                    if (isMulti && isHost) OnlineManager.broadcastAction('NAV_STAGE', { stage: 'qualifying' });
                     render();
                 }
             } else if (!practiceState.isRunning) {
+                if (isMulti && isHost) OnlineManager.broadcastAction('SESSION_START', {});
                 startPracticeTimer(track, career);
             }
         });
@@ -301,6 +341,11 @@ const RaceWeekendScreen = (() => {
 
         practiceState.interval = setInterval(() => {
             practiceState.progress++;
+
+            // --- MULTIPLAYER SESSION SYNC ---
+            if (StateManager.get('race')?.isMultiplayerRace && typeof OnlineManager !== 'undefined' && OnlineManager.isHost()) {
+                OnlineManager.broadcastAction('SESSION_PROGRESS_SYNC', { progress: practiceState.progress });
+            }
 
             // Update times
             practiceState.standings.forEach(c => {
@@ -399,8 +444,7 @@ const RaceWeekendScreen = (() => {
     function renderQualifyingView(track, career) {
         container.innerHTML = `
             <div class="rw-container" style="max-width: 1500px; margin: 0 auto; padding: 24px;">
-                <button class="home-btn" id="rw-home-btn" style="z-index: 50;">⌂</button>
-
+                
                 <!-- TOP STAGING BANNER -->
                 <div style="display: flex; justify-content: space-between; align-items: center; background: radial-gradient(circle at center, #112211, #050505); border: 2px solid var(--green); border-radius: var(--radius-lg); padding: 20px 32px; box-shadow: 0 0 30px rgba(0,255,65,0.2); margin-bottom: 24px;">
                     <div>
@@ -534,6 +578,13 @@ const RaceWeekendScreen = (() => {
         if (typeof AudioManager !== 'undefined') AudioManager.engineRev();
 
         if (qualiState.session === 'Q1') {
+            // --- MULTIPLAYER QUALI SYNC ---
+            const race = StateManager.get('race');
+            if (race?.isMultiplayerRace && typeof OnlineManager !== 'undefined' && !OnlineManager.isHost()) {
+                Notifications.info('Waiting for Host', 'The Host is calculating shootout results...');
+                return;
+            }
+
             // Run Q1 for 24 cars
             qualiState.q1Results.forEach(c => {
                 // 1% Crash Test in Quali!
@@ -551,7 +602,17 @@ const RaceWeekendScreen = (() => {
             qualiState.q2Results = qualiState.q1Results.slice(0, 15);
             qualiState.session = 'Q2';
 
+            if (race?.isMultiplayerRace && typeof OnlineManager !== 'undefined' && OnlineManager.isHost()) {
+                OnlineManager.broadcastAction('QUALI_SYNC', { session: 'Q2', q1: qualiState.q1Results, q2: qualiState.q2Results });
+            }
+
         } else if (qualiState.session === 'Q2') {
+            const race = StateManager.get('race');
+            if (race?.isMultiplayerRace && typeof OnlineManager !== 'undefined' && !OnlineManager.isHost()) {
+                Notifications.info('Waiting for Host', 'The Host is calculating shootout results...');
+                return;
+            }
+
             // Run Q2 for Top 15
             qualiState.q2Results.forEach(c => {
                 if (c.isPlayer && !qualiState.crashedInSession && Math.random() < 0.01) {
@@ -567,7 +628,17 @@ const RaceWeekendScreen = (() => {
             qualiState.q3Results = qualiState.q2Results.slice(0, 10);
             qualiState.session = 'Q3';
 
+            if (race?.isMultiplayerRace && typeof OnlineManager !== 'undefined' && OnlineManager.isHost()) {
+                OnlineManager.broadcastAction('QUALI_SYNC', { session: 'Q3', q2: qualiState.q2Results, q3: qualiState.q3Results });
+            }
+
         } else if (qualiState.session === 'Q3') {
+            const race = StateManager.get('race');
+            if (race?.isMultiplayerRace && typeof OnlineManager !== 'undefined' && !OnlineManager.isHost()) {
+                Notifications.info('Waiting for Host', 'The Host is calculating shootout results...');
+                return;
+            }
+
             // Run Q3 for Top 10 Shootout
             qualiState.q3Results.forEach(c => {
                 if (c.isPlayer && !qualiState.crashedInSession && Math.random() < 0.01) {
@@ -590,11 +661,30 @@ const RaceWeekendScreen = (() => {
             const definitiveStartingGrid = qualiState.finalGrid.map((c, idx) => ({ carId: c.driver.id, position: idx + 1 }));
             StateManager.set('qualiStartingGrid', definitiveStartingGrid);
 
+            // --- BUG FIX: Record Pole Position for Profile Metrics ---
+            const poleDriver = qualiState.finalGrid[0];
+            if (poleDriver && poleDriver.isPlayer) {
+                const profile = StateManager.get('profile');
+                if (profile) {
+                    profile.totalPoles = (profile.totalPoles || 0) + 1;
+                    StateManager.set('profile', profile);
+                    StateManager.saveProfile();
+                }
+            }
+
             qualiState.session = 'DONE';
+
+            if (race?.isMultiplayerRace && typeof OnlineManager !== 'undefined' && OnlineManager.isHost()) {
+                OnlineManager.broadcastAction('QUALI_SYNC', { session: 'DONE', q3: qualiState.q3Results, grid: definitiveStartingGrid, finalGrid: qualiState.finalGrid });
+            }
+
             Notifications.success('Qualifiers Fully Concluded!', `${qualiState.finalGrid[0]?.driver?.name || 'Pole Driver'} claims the ultimate Pole Position!`);
         } else {
             // Proceed to grand prix strategy
             currentStage = 'strategy';
+            if (StateManager.get('race')?.isMultiplayerRace && typeof OnlineManager !== 'undefined' && OnlineManager.isHost()) {
+                OnlineManager.broadcastAction('NAV_STAGE', { stage: 'strategy' });
+            }
         }
         render();
     }
@@ -615,17 +705,29 @@ const RaceWeekendScreen = (() => {
 
     /* ===== FINAL STAGE: LIVE GRAND PRIX STRATEGY SETUP mode ===== */
 
+    // Final Stage: Live Grand Prix Strategy Setup
+    let strategyCountdown = 10;
+    let countdownPaused = false;
+    let countdownInterval = null;
+
     function renderStrategyView(track, career) {
         const expectedWeather = track.rainProbability > 50 ? 'wet' : track.rainProbability > 25 ? 'mixed' : 'dry';
+        const isMulti = StateManager.get('race')?.isMultiplayerRace;
 
         container.innerHTML = `
             <div class="rw-container">
-                <button class="home-btn" id="rw-home-btn" style="z-index: 50;">⌂</button>
-
+                
                 <div class="rw-stage-header">
                     <div class="rw-stage-label">FINAL STEP • Live Grand Prix Strategy</div>
                     <div class="rw-stage-title">${escapeHTML(track.name)}</div>
                 </div>
+
+                ${isMulti ? `
+                    <div id="strategy-countdown-banner" style="max-width: 600px; margin: 0 auto 24px; padding: 16px; background: rgba(255,0,51,0.15); border: 2px solid var(--red); border-radius: 8px; text-align: center;">
+                        <div style="font-family: Orbitron; font-weight: 900; font-size: 24px; color: var(--white);" id="cd-timer">RACE STARTS IN: ${strategyCountdown}s</div>
+                        ${OnlineManager.isHost() ? `<button class="btn btn-glow" id="btn-pause-cd" style="margin-top: 10px; font-size: 10px; padding: 4px 12px;">${countdownPaused ? 'RESUME COUNTDOWN' : 'PAUSE COUNTDOWN'}</button>` : '<div style="font-size: 11px; color: var(--gray-400); margin-top: 5px;">Waiting for Host to release the grid...</div>'}
+                    </div>
+                ` : ''}
 
                 <div style="text-align: center; margin-bottom: var(--space-lg);">
                     <span class="badge ${expectedWeather === 'wet' ? 'badge-blue' : expectedWeather === 'mixed' ? 'badge-yellow' : 'badge-green'}" style="font-size: 14px; padding: 8px 16px;">
@@ -692,15 +794,32 @@ const RaceWeekendScreen = (() => {
 
                 <div style="display: flex; justify-content: space-between; align-items: center; max-width: 1000px; margin: var(--space-2xl) auto 0; gap: 20px;">
                     <button class="btn" id="rw-prev-quali">← BACK TO QUALIFYING</button>
-                    <button class="btn btn-primary btn-large" id="rw-launch-final-gp" style="padding: 20px 48px; font-family: Orbitron; font-weight: 900; font-size: 22px; box-shadow: 0 0 35px rgba(0,255,65,0.4);">
-                        🏁 LAUNCH GRAND PRIX
-                    </button>
+                    ${!isMulti ? `
+                        <button class="btn btn-primary btn-large" id="rw-launch-final-gp" style="padding: 20px 48px; font-family: Orbitron; font-weight: 900; font-size: 22px; box-shadow: 0 0 35px rgba(0,255,65,0.4);">
+                            🏁 LAUNCH GRAND PRIX
+                        </button>
+                    ` : ''}
                 </div>
             </div>
         `;
 
-        container.querySelector('#rw-home-btn')?.addEventListener('click', () => EventBus.emit('nav:home'));
+        if (isMulti && !countdownInterval) {
+            startStrategyCountdown(track, career);
+        }
+
+        container.querySelector('#rw-home-btn')?.addEventListener('click', () => {
+            stopCountdown();
+            EventBus.emit('nav:home');
+        });
+        
+        container.querySelector('#btn-pause-cd')?.addEventListener('click', () => {
+            countdownPaused = !countdownPaused;
+            OnlineManager.broadcastAction('CD_SYNC', { paused: countdownPaused, time: strategyCountdown });
+            render();
+        });
+
         container.querySelector('#rw-prev-quali')?.addEventListener('click', () => {
+            stopCountdown();
             currentStage = 'qualifying';
             render();
         });
@@ -737,6 +856,36 @@ const RaceWeekendScreen = (() => {
         });
     }
 
+    function startStrategyCountdown(track, career) {
+        strategyCountdown = 10;
+        if (countdownInterval) clearInterval(countdownInterval);
+        
+        countdownInterval = setInterval(() => {
+            if (countdownPaused) return;
+            
+            strategyCountdown--;
+            const timerEl = document.getElementById('cd-timer');
+            if (timerEl) timerEl.textContent = `RACE STARTS IN: ${strategyCountdown}s`;
+            
+            if (strategyCountdown <= 0) {
+                stopCountdown();
+                launchFinalGrandPrix(track, career);
+            }
+        }, 1000);
+    }
+
+    function stopCountdown() {
+        if (countdownInterval) clearInterval(countdownInterval);
+        countdownInterval = null;
+    }
+
+    function syncCD(data) {
+        countdownPaused = data.paused;
+        strategyCountdown = data.time;
+        const timerEl = document.getElementById('cd-timer');
+        if (timerEl) timerEl.textContent = `RACE STARTS IN: ${strategyCountdown}s`;
+    }
+
     function launchFinalGrandPrix(track, career) {
         if (typeof AudioManager !== 'undefined') AudioManager.engineRev();
 
@@ -750,7 +899,8 @@ const RaceWeekendScreen = (() => {
             difficulty: career.difficulty || 'COMPETITIVE',
             strategy: strategy,
             grid: customGrid || null,
-            isCareerRace: true
+            isCareerRace: true,
+            isMultiplayerRace: career.isMultiplayer || false
         });
 
         setTimeout(() => {
@@ -969,5 +1119,13 @@ const RaceWeekendScreen = (() => {
 
     function destroy() { isActive = false; }
 
-    return { init, render, destroy };
+    return {
+        init,
+        render,
+        setStage,
+        syncQuali,
+        syncSession,
+        syncCD,
+        destroy
+    };
 })();

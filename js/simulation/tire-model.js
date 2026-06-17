@@ -5,7 +5,7 @@
    dynamic per-car tire instances
    ============================================ */
 
-const TireModel = (() => {
+window.TireModel = (() => {
 
     /**
      * Create a new tire state for a car
@@ -32,7 +32,7 @@ const TireModel = (() => {
      * True Real Life (IRL) cumulative physical tire degradation engine
      * Accurately tracks tread scrubbed off and models Pirelli F1 cliff curves
      */
-    function updateLap(tireState, driver, weather, drivingMode = 'STANDARD') {
+    function updateLap(tireState, driver, weather, drivingMode = 'STANDARD', trackTemp = 35) {
         tireState.lapsOnTire++;
 
         const compound = getCompoundById(tireState.compoundId);
@@ -44,6 +44,10 @@ const TireModel = (() => {
         let wearMultiplier = 1.0;
         if (drivingMode === 'PUSH') wearMultiplier = 1.4;
         else if (drivingMode === 'CONSERVE') wearMultiplier = 0.7;
+
+        // Track Temp impact on wear (Base 35°C)
+        const tempWearMod = 1.0 + (trackTemp - 35) * 0.015; // 1.5% more wear per degree above 35
+        wearMultiplier *= Math.max(0.5, tempWearMod);
 
         if (driver?.traits?.includes('TIRE_WHISPERER')) wearMultiplier *= 0.8;
         if (driver?.traits?.includes('SMOOTH')) wearMultiplier *= 0.9;
@@ -95,9 +99,9 @@ const TireModel = (() => {
      * Update tire temperature based on driving style and weather
      * Optimal range: 90-110°C
      */
-    function updateTireTemperature(tireState, drivingMode, weather) {
+    function updateTireTemperature(tireState, drivingMode, weather, trackTemp = 35) {
         const optimalTemp = 100;
-        let targetTemp = optimalTemp;
+        let targetTemp = optimalTemp + (trackTemp - 35) * 0.5; // Track temp shifts target
 
         // Driving mode affects target temp
         if (drivingMode === 'PUSH') targetTemp += 15;
@@ -150,31 +154,23 @@ const TireModel = (() => {
     /**
      * Get current tire performance (grip multiplier)
      */
-    function getCurrentGrip(tireState, weather) {
-        return calculateTirePerformance(
-            tireState.compoundId,
-            tireState.lapsOnTire,
-            weather,
-            75
-        );
+    function getCurrentGrip(tireState) {
+        return tireState.currentGrip || 1.0;
     }
 
     /**
      * Get lap time impact in seconds
      */
-    function getLapTimeImpact(tireState, driver, weather, drivingMode = 'STANDARD') {
-        const tireSkill = driver?.stats?.tireManagement || 75;
-
-        let wearMultiplier = 1.0;
-        if (drivingMode === 'PUSH') wearMultiplier = 1.4;
-        if (drivingMode === 'CONSERVE') wearMultiplier = 0.7;
-
-        return calculateTireLapTimeImpact(
-            tireState.compoundId,
-            tireState.lapsOnTire * wearMultiplier,
-            weather,
-            tireSkill
-        );
+    function getLapTimeImpact(tireState) {
+        // Return impact based on current wear and grip
+        const wear = tireState.wearPercent || 0;
+        
+        if (wear < 10) return 0; // Fresh tire
+        if (wear < 50) return (wear - 10) * 0.02; // Minor deg
+        if (wear < 75) return 0.8 + (wear - 50) * 0.08; // Noticeable deg
+        
+        // The Cliff
+        return 2.8 + (wear - 75) * 0.4;
     }
 
     /**
@@ -182,7 +178,15 @@ const TireModel = (() => {
      */
     function getDisplayInfo(tireState) {
         const compound = getCompoundById(tireState.compoundId);
-        const condition = getTireCondition(tireState.compoundId, tireState.lapsOnTire);
+        
+        let label = 'New';
+        let color = '#00FF41';
+        const wear = tireState.wearPercent;
+
+        if (wear > 90) { label = 'Dead'; color = '#FF0033'; }
+        else if (wear > 75) { label = 'Cliff'; color = '#FF6600'; }
+        else if (wear > 50) { label = 'Worn'; color = '#FFD700'; }
+        else if (wear > 25) { label = 'Used'; color = '#AAFF00'; }
 
         return {
             compound: compound,
@@ -192,11 +196,10 @@ const TireModel = (() => {
             displayColor: compound.displayColor,
             lapsOnTire: tireState.lapsOnTire,
             wearPercent: tireState.wearPercent,
-            condition: condition.label,
-            conditionColor: condition.color,
-            conditionPercent: condition.percent,
+            condition: label,
+            conditionColor: color,
             grip: Math.round(tireState.currentGrip * 100),
-            temp: Math.round(tireState.currentTemp),
+            temp: tireState.currentTemp.toFixed(1),
             isInCliff: tireState.isInCliff,
             isWornOut: tireState.isWornOut
         };

@@ -4,7 +4,7 @@
    with standalone formatting and wrap-safe DOM parsing
    ============================================ */
 
-const ResultsScreen = (() => {
+window.ResultsScreen = (() => {
 
     let container = null;
     let isActive = false;
@@ -112,7 +112,10 @@ const ResultsScreen = (() => {
                             <tbody>
                                 ${results.map(r => {
                                     if (!r) return '';
-                                    const isPlayerTeam = r?.team?.id && race?.playerTeamId && r.team.id === race.playerTeamId;
+                                    // Highlight if it's a player-controlled team (works for both SP and MP)
+                                    const isPlayerTeam = r?.car?.isPlayer || r?.team?.isPlayer || (r?.team?.id && race?.playerTeamId && r.team.id === race.playerTeamId);
+                                    const isLocalPlayer = r?.team?.id && race?.playerTeamId && r.team.id === race.playerTeamId;
+                                    
                                     const isDnf = r?.status === 'DNF';
                                     const pos = r?.position || 99;
                                     const dName = r?.driver?.name || 'RACER';
@@ -125,13 +128,14 @@ const ResultsScreen = (() => {
                                     const flBonus = r?.fastestLapBonus > 0 ? '+1' : '';
 
                                     return `
-                                        <tr class="${isPlayerTeam ? 'player-result' : ''} ${isDnf ? 'dnf' : ''}">
+                                        <tr class="${isPlayerTeam ? 'player-result' : ''} ${isLocalPlayer ? 'local-player-result' : ''} ${isDnf ? 'dnf' : ''}">
                                             <td class="pos-cell">
                                                 <span class="pos-num ${pos === 1 ? 'pos-1' : pos === 2 ? 'pos-2' : pos === 3 ? 'pos-3' : ''}">${pos}</span>
                                             </td>
                                             <td>
                                                 <span style="margin-right: 6px;">${escapeHTML(dFlag)}</span>
                                                 ${escapeHTML(dName)}
+                                                ${isLocalPlayer ? ' <span style="font-size:8px; color:var(--blue); vertical-align:middle;">(YOU)</span>' : ''}
                                             </td>
                                             <td>
                                                 <span style="display: inline-block; width: 4px; height: 14px; background: ${tCol}; margin-right: 6px; vertical-align: middle;"></span>
@@ -237,6 +241,23 @@ const ResultsScreen = (() => {
         container.querySelector('#res-continue')?.addEventListener('click', (e) => {
             e.stopPropagation();
             if (typeof AudioManager !== 'undefined') AudioManager.uiClick?.();
+            
+            // --- BUG FIX: Final safety increment of currentRound only on explicit continue ---
+            const career = StateManager.get('career');
+            const race = StateManager.get('race');
+            if (career && race && race.isCareerRace) {
+                // Check if already incremented for this specific round
+                const lastHistoryRound = career.raceHistory && career.raceHistory.length > 0 
+                    ? career.raceHistory[career.raceHistory.length - 1].round 
+                    : -1;
+                
+                if (career.currentRound < lastHistoryRound) {
+                    career.currentRound = lastHistoryRound;
+                    StateManager.set('career', career);
+                    StateManager.saveGame?.();
+                }
+            }
+            
             EventBus.emit('nav:go', { screen: 'dashboard', color: '#00FF41' });
         });
 
@@ -480,6 +501,10 @@ const ResultsScreen = (() => {
             }
             .results-table tr.player-result {
                 background: rgba(0,255,65,0.05);
+            }
+            .results-table tr.local-player-result {
+                background: rgba(0,255,65,0.12);
+                border-left: 3px solid var(--green);
             }
             .results-table tr.dnf {
                 opacity: 0.5; text-decoration: line-through;

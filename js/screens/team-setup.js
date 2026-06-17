@@ -3,7 +3,7 @@
    4-step team builder: Team → Drivers → Staff → Review
    ============================================ */
 
-const TeamSetupScreen = (() => {
+window.TeamSetupScreen = (() => {
 
     let container = null;
     let isActive = false;

@@ -5,7 +5,7 @@
    for major performance improvement
    ============================================ */
 
-const WaveSystem = (() => {
+window.WaveSystem = (() => {
 
     let canvas = null;
     let ctx = null;

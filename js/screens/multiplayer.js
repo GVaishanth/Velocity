@@ -4,6 +4,13 @@
    Supports up to 12 Online Human Constructors!
    ============================================ */
 
+function escapeHTML(str) {
+    if (!str) return '';
+    const div = document.createElement('div');
+    div.textContent = str.toString();
+    return div.innerHTML;
+}
+
 window.OnlineManager = (() => {
     let peer = null;
     let myConnection = null;       // Client connected to Host broker
@@ -26,39 +33,121 @@ window.OnlineManager = (() => {
     let matchSettings = { races: 5, difficulty: 'COMPETITIVE', speed: 2, lengthMult: 0.5 };
     let masterSchedule = null;
     let uiCallback = null;
+    
+    // Heartbeat and Sync Intervals
+    let heartbeatInterval = null;
+    let syncInterval = null;
+    let lastLatency = 0;
+
+    let lastRoomCode = null; // Store for reconnect
 
     function init() {
         if (!myTeam && typeof TEAMS_DATA !== 'undefined') {
             myTeam = TEAMS_DATA[0];
         }
+        
+        try {
+            // Restore session if possible
+            const session = sessionStorage.getItem('velocity_mp_session');
+            if (session) {
+                const data = JSON.parse(session);
+                myUsername = data.username || myUsername;
+                console.log('[OnlineManager] Session restored for:', myUsername);
+            }
+        } catch(e) {
+            console.warn('[OnlineManager] sessionStorage access failed');
+        }
     }
 
-    function createRoom(onReady) {
+    function createRoom(onReady, fixedCode = null) {
         cleanup();
         isHost = true;
         matchStarted = false;
-        const codeNum = Math.floor(1000 + Math.random() * 9000);
-        roomCode = codeNum.toString();
-        const fullId = 'VELOCITY-' + roomCode;
+        
+        if (fixedCode) {
+            roomCode = fixedCode;
+        } else {
+            const codeNum = Math.floor(1000 + Math.random() * 9000);
+            const salt = Math.random().toString(36).substring(2, 5).toUpperCase();
+            roomCode = codeNum.toString() + salt;
+        }
+        
+        const fullId = 'VELOCITY-V1-' + roomCode;
+        console.log('[OnlineManager] Creating room:', fullId);
+
+        // Store role but don't overwrite career data yet
+        sessionStorage.setItem('velocity_mp_session', JSON.stringify({
+            roomCode,
+            isHost: true,
+            username: myUsername
+        }));
 
         try {
-            peer = new Peer(fullId);
+            peer = new Peer(fullId, {
+                debug: 2
+            });
 
             peer.on('open', (id) => {
+                console.log('[OnlineManager] Host Peer ID:', id);
                 Notifications.success('Master Online Room Created!', `Room Code: ${roomCode}`);
+                startHeartbeat();
+                
+                // If this is a restore, reload state
+                if (fixedCode) {
+                    try {
+                        const sessionStr = sessionStorage.getItem('velocity_mp_session');
+                        const sessionData = sessionStr ? JSON.parse(sessionStr) : null;
+                        if (sessionData?.gameState) {
+                            console.log('[OnlineManager] Restoring Game State for Grid...');
+                            StateManager.set('career', sessionData.gameState.career);
+                            StateManager.set('race', sessionData.gameState.race);
+                            onlinePlayers = sessionData.gameState.career.allTeams
+                                .filter(t => t.isPlayer)
+                                .map(t => ({
+                                    username: t.onlineUsername || (t.isLocalPlayer ? myUsername : 'Player'),
+                                    team: t,
+                                    drivers: t.drivers,
+                                    isHost: t.isLocalPlayer,
+                                    connectionId: t.isLocalPlayer ? 'host' : 'unknown',
+                                    isReady: true,
+                                    isReadyForWeekend: true
+                                }));
+                            matchStarted = true;
+                            if (sessionData.gameState.race) startRaceSync();
+                        }
+                    } catch(e) { console.error('[OnlineManager] State restore failed', e); }
+                }
+
+                // Ensure local host is in grid and ready
+                const hostEntry = onlinePlayers.find(p => p.isHost);
+                if (hostEntry) hostEntry.isReady = true;
+
                 if (onReady) onReady();
                 triggerRender();
             });
 
             peer.on('connection', (conn) => {
-                if (onlinePlayers.length >= 12) {
-                    conn.send({ type: 'ERROR', message: 'Room is completely full (12/12 Constructors joined)!' });
-                    setTimeout(() => conn.close(), 500);
-                    return;
-                }
+                console.log('[OnlineManager] Incoming connection from:', conn.peer);
+                
+                // --- MULTIPLAYER RECONNECT LOGIC ---
+                // If match started, only allow connection if the peer was already part of the grid
                 if (matchStarted) {
-                    conn.send({ type: 'ERROR', message: 'Championship Season has already started!' });
-                    setTimeout(() => conn.close(), 500);
+                    const isReturning = onlinePlayers.some(op => op.connectionId === conn.peer || op.username === conn.metadata?.username);
+                    if (!isReturning) {
+                        conn.on('open', () => {
+                            conn.send({ type: 'ERROR', message: 'Championship Season has already started and you are not a registered constructor!' });
+                            setTimeout(() => conn.close(), 1000);
+                        });
+                        return;
+                    }
+                    console.log('[OnlineManager] Permitting mid-game reconnection for peer:', conn.peer);
+                }
+
+                if (onlinePlayers.length >= 12 && !matchStarted) {
+                    conn.on('open', () => {
+                        conn.send({ type: 'ERROR', message: 'Room is completely full (12/12 Constructors joined)!' });
+                        setTimeout(() => conn.close(), 1000);
+                    });
                     return;
                 }
 
@@ -67,7 +156,11 @@ window.OnlineManager = (() => {
             });
 
             peer.on('error', (err) => {
-                Notifications.error('Network Error', err.message || 'Failed to establish room');
+                if (err.type === 'unavailable-id') {
+                    Notifications.error('Room Code Conflict', 'This code is already in use. Try creating again.');
+                } else {
+                    Notifications.error('Network Error', err.message || 'Failed to establish room');
+                }
                 console.error('[PeerJS Error]', err);
                 triggerRender();
             });
@@ -77,25 +170,24 @@ window.OnlineManager = (() => {
         }
     }
 
-    function lockInHost(username, teamId, driver1Id, driver2Id, staffId) {
+    function lockInHost(username, teamId, driver1Id, driver2Id, staff) {
         myUsername = username || myUsername;
         if (typeof getTeamById === 'function') myTeam = getTeamById(teamId);
         if (typeof getDriverById === 'function') {
             myDrivers = [getDriverById(driver1Id), getDriverById(driver2Id)].filter(Boolean);
         }
 
-        if (typeof STAFF_DATA !== 'undefined') {
-            myStaff = {
-                techDirector: STAFF_DATA.technicalDirectors?.find(s => s.id === staffId) || STAFF_DATA.technicalDirectors?.[0],
-                strategist: STAFF_DATA.chiefStrategists?.[0],
-                pitCrew: STAFF_DATA.pitCrews?.[0]
-            };
+        // Logic check: ensure staff is an object
+        if (typeof staff === 'object' && staff !== null) {
+            myStaff = staff;
+        } else {
+            console.warn('[OnlineManager] lockInHost: Invalid staff object provided');
         }
 
         // Add Local Host to Master Roster
         const existingHost = onlinePlayers.find(op => op.isHost);
         if (existingHost) {
-            Object.assign(existingHost, { username: myUsername, team: myTeam, drivers: myDrivers, staff: myStaff, isReady: true });
+            Object.assign(existingHost, { username: myUsername, team: myTeam, drivers: myDrivers, staff: myStaff, isReady: true, pauseCredits: 999 });
         } else {
             onlinePlayers.push({
                 isHost: true,
@@ -104,7 +196,8 @@ window.OnlineManager = (() => {
                 team: myTeam,
                 drivers: myDrivers,
                 staff: myStaff,
-                isReady: true
+                isReady: true,
+                pauseCredits: 999
             });
         }
 
@@ -125,22 +218,95 @@ window.OnlineManager = (() => {
         });
     }
 
+    function startHeartbeat() {
+        if (heartbeatInterval) clearInterval(heartbeatInterval);
+        heartbeatInterval = setInterval(() => {
+            const msg = { type: 'PING', timestamp: Date.now() };
+            if (isHost) {
+                clientConnections.forEach(c => { if(c.open) c.send(msg); });
+            } else if (myConnection && myConnection.open) {
+                myConnection.send(msg);
+            }
+        }, 5000);
+    }
+
+    function triggerReady() {
+        if (isHost) {
+            const hostPlayer = onlinePlayers.find(p => p.isHost);
+            if (hostPlayer) {
+                hostPlayer.isReady = !hostPlayer.isReady;
+                console.log('[OnlineManager] Host toggled ready:', hostPlayer.isReady);
+            }
+            broadcastLobbyUpdate();
+        } else if (myConnection && myConnection.open) {
+            myConnection.send({ type: 'CLIENT_TOGGLE_READY' });
+        }
+        triggerRender();
+    }
+
     function setupHostConnectionListeners(conn) {
         conn.on('data', (data) => {
             if (!data || !data.type) return;
 
-            if (data.type === 'CLIENT_CONNECTING') {
-                Notifications.info('New Constructor Connected!', `Challenger ${data.username || ''} joined waiting room.`);
-                conn.send({
+            if (data.type === 'PING') {
+                conn.send({ type: 'PONG', timestamp: data.timestamp });
+            } else if (data.type === 'PONG') {
+                lastLatency = Date.now() - data.timestamp;
+                triggerRender();
+            } else if (data.type === 'CLIENT_TOGGLE_READY') {
+                const player = onlinePlayers.find(op => op.connectionId === conn.peer);
+                if (player) {
+                    player.isReady = !player.isReady;
+                    broadcastLobbyUpdate();
+                    triggerRender();
+                }
+            } else if (data.type === 'CLIENT_TOGGLE_WEEKEND_READY') {
+                const player = onlinePlayers.find(op => op.connectionId === conn.peer);
+                if (player) {
+                    player.isReadyForWeekend = !player.isReadyForWeekend;
+                    broadcastLobbyUpdate();
+                    if (typeof DashboardScreen !== 'undefined' && DashboardScreen.isPageActive()) {
+                        DashboardScreen.render();
+                    }
+                }
+            } else if (data.type === 'CLIENT_TOGGLE_WEEKEND_READY') {
+                const player = onlinePlayers.find(op => op.connectionId === conn.peer);
+                if (player) {
+                    player.isReadyForWeekend = !player.isReadyForWeekend;
+                    broadcastLobbyUpdate();
+                    if (typeof DashboardScreen !== 'undefined' && DashboardScreen.isPageActive()) {
+                        DashboardScreen.render();
+                    }
+                }
+            } else if (data.type === 'CLIENT_CONNECTING') {
+                Notifications.info('Constructor Connected!', `Uplink established with ${data.username || 'Challenger'}.`);
+                
+                // --- RECONNECT SYNC: Update connection ID for returning player ---
+                if (matchStarted) {
+                    const returning = onlinePlayers.find(op => op.username === data.username);
+                    if (returning) returning.connectionId = conn.peer;
+                }
+
+                const response = {
                     type: 'LOBBY_UPDATE',
                     onlinePlayers: onlinePlayers,
                     settings: matchSettings
-                });
+                };
+
+                // If mid-game, send the full career payload to resync the client
+                if (matchStarted) {
+                    const career = StateManager.get('career');
+                    response.fullCareerSync = career;
+                    response.matchStarted = true;
+                    response.currentRace = StateManager.get('race');
+                }
+
+                conn.send(response);
                 triggerRender();
             } else if (data.type === 'CLIENT_LOCKED') {
                 const existing = onlinePlayers.find(op => op.connectionId === conn.peer);
                 if (existing) {
-                    Object.assign(existing, { username: data.username, team: data.team, drivers: data.drivers, staff: data.staff, isReady: true });
+                    Object.assign(existing, { username: data.username, team: data.team, drivers: data.drivers, staff: data.staff, isReady: true, pauseCredits: 3 });
                 } else {
                     onlinePlayers.push({
                         isHost: false,
@@ -149,7 +315,8 @@ window.OnlineManager = (() => {
                         team: data.team,
                         drivers: data.drivers,
                         staff: data.staff,
-                        isReady: true
+                        isReady: true,
+                        pauseCredits: 3
                     });
                 }
                 Notifications.success('Constructor Locked In!', `${data.username} locked in ${data.team?.name}`);
@@ -173,6 +340,8 @@ window.OnlineManager = (() => {
                     });
                 }
                 triggerRender();
+            } else if (data.type === 'LIVERY_UPDATE') {
+                handleLiveryUpdate(conn.peer, data.livery);
             } else if (data.type === 'LIVE_ACTION') {
                 // Relaying live action across the massive worldwide grid
                 handleRemoteLiveAction(data.payload);
@@ -195,21 +364,34 @@ window.OnlineManager = (() => {
         cleanup();
         isHost = false;
         matchStarted = false;
-        roomCode = code.trim();
-        if (roomCode.startsWith('VELOCITY-')) roomCode = roomCode.replace('VELOCITY-', '');
+        roomCode = code.trim().toUpperCase();
+        if (roomCode.startsWith('VELOCITY-V1-')) roomCode = roomCode.replace('VELOCITY-V1-', '');
+        else if (roomCode.startsWith('VELOCITY-')) roomCode = roomCode.replace('VELOCITY-', '');
 
         Notifications.info('Seeking Host Broker...', `Connecting to Room ${roomCode}`);
-        const targetId = 'VELOCITY-' + roomCode;
+        const targetId = 'VELOCITY-V1-' + roomCode;
+
+        // Persist session
+        sessionStorage.setItem('velocity_mp_session', JSON.stringify({
+            roomCode,
+            isHost: false,
+            username: myUsername
+        }));
 
         try {
             peer = new Peer();
 
             peer.on('open', (id) => {
-                myConnection = peer.connect(targetId, { reliable: true });
+                console.log('[OnlineManager] Client Peer ID:', id);
+                myConnection = peer.connect(targetId, { 
+                    reliable: true,
+                    metadata: { username: myUsername } // Pass username for reconnect verification
+                });
 
                 myConnection.on('open', () => {
                     Notifications.success('Master Uplink Locked!', 'Retrieving Global Staging State...');
                     setupClientConnectionListeners(myConnection);
+                    startHeartbeat();
                     myConnection.send({
                         type: 'CLIENT_CONNECTING',
                         username: myUsername
@@ -220,16 +402,23 @@ window.OnlineManager = (() => {
 
                 myConnection.on('error', (err) => {
                     Notifications.error('Connection Failed', err.message);
+                    console.error('[Client Connection Error]', err);
                     triggerRender();
                 });
             });
 
             peer.on('error', (err) => {
-                Notifications.error('Connection Error', 'Could not reach Host. Verify Room Code.');
+                if (err.type === 'peer-not-found') {
+                    Notifications.error('Room Not Found', 'Could not find a Host with this code.');
+                } else {
+                    Notifications.error('Connection Error', err.message || 'Failed to connect');
+                }
+                console.error('[Client Peer Error]', err);
                 triggerRender();
             });
         } catch (e) {
             Notifications.error('WebRTC Error', 'Failed to initiate connection.');
+            console.error('[OnlineManager]', e);
         }
     }
 
@@ -237,9 +426,36 @@ window.OnlineManager = (() => {
         conn.on('data', (data) => {
             if (!data || !data.type) return;
 
-            if (data.type === 'LOBBY_UPDATE') {
+            if (data.type === 'PING') {
+                conn.send({ type: 'PONG', timestamp: data.timestamp });
+            } else if (data.type === 'PONG') {
+                lastLatency = Date.now() - data.timestamp;
+                triggerRender();
+            } else if (data.type === 'LOBBY_UPDATE') {
                 if (data.onlinePlayers) onlinePlayers = data.onlinePlayers;
-                if (data.settings) matchSettings = data.settings;
+                if (data.settings) {
+                    matchSettings = data.settings;
+                    // Update Race UI Speed if active
+                    if (typeof PlayerControls !== 'undefined' && typeof RaceEngine !== 'undefined' && RaceEngine.getState()) {
+                        PlayerControls.refresh();
+                    }
+                }
+
+                // --- MID-GAME RECONNECT SYNC ---
+                if (data.fullCareerSync) {
+                    console.log('[OnlineManager] Reconnected: Syncing career state from Host');
+                    StateManager.set('career', data.fullCareerSync);
+                }
+                if (data.currentRace) {
+                    StateManager.set('race', data.currentRace);
+                    matchStarted = true;
+                    // If we are on Home or Multiplayer screen, jump back to Dashboard or Race
+                    const curr = StateManager.get('currentScreen');
+                    if (curr === 'home' || curr === 'multiplayer') {
+                        EventBus.emit('nav:go', { screen: 'dashboard', color: '#FF0033' });
+                    }
+                }
+
                 triggerRender();
             } else if (data.type === 'SETTINGS_UPDATE') {
                 if (data.settings) matchSettings = data.settings;
@@ -261,6 +477,44 @@ window.OnlineManager = (() => {
                 triggerRender();
             } else if (data.type === 'START_MATCH') {
                 handleRemoteStart(data);
+            } else if (data.type === 'START_WEEKEND') {
+                Notifications.success('Race Weekend Initiated', 'Entering the paddock...');
+                if (typeof EventBus !== 'undefined') EventBus.emit('nav:go', { screen: 'race-weekend', color: '#00FF41' });
+            } else if (data.type === 'SKIP_VOTE_START') {
+                handleSkipVote(data.requester);
+            } else if (data.type === 'SKIP_VOTE_CONFIRM') {
+                handleSkipVoteConfirm(data.voter);
+            } else if (data.type === 'QUALI_SYNC') {
+                handleQualiSync(data);
+            } else if (data.type === 'RACE_PAUSE_TOGGLE') {
+                if (typeof RaceEngine !== 'undefined') {
+                    if (data.isPaused) RaceEngine.pause();
+                    else RaceEngine.resume();
+                    
+                    if (data.requester && data.requester !== myUsername) {
+                         Notifications.info('Race Paused', `${data.requester} used a credit.`);
+                    }
+
+                    if (typeof PlayerControls !== 'undefined') PlayerControls.refresh();
+                }
+            } else if (data.type === 'SESSION_PROGRESS_SYNC') {
+                if (typeof RaceWeekendScreen !== 'undefined') RaceWeekendScreen.syncSession(data);
+            } else if (data.type === 'SESSION_START') {
+                if (typeof RaceWeekendScreen !== 'undefined') RaceWeekendScreen.remoteStartSession();
+            } else if (data.type === 'SESSION_RESET') {
+                if (typeof RaceWeekendScreen !== 'undefined') RaceWeekendScreen.remoteResetSession(data.session);
+            } else if (data.type === 'CD_SYNC') {
+                if (typeof RaceWeekendScreen !== 'undefined') RaceWeekendScreen.syncCD(data);
+            } else if (data.type === 'PAUSE_REQUEST') {
+                handlePauseRequest(data.requesterId);
+            } else if (data.type === 'LIVERY_UPDATE') {
+                handleLiveryUpdate(data.connectionId || conn.peer, data.livery);
+            } else if (data.type === 'NAV_STAGE') {
+                handleNavStage(data.stage);
+            } else if (data.type === 'RACE_EVENT') {
+                handleRemoteEvent(data.event);
+            } else if (data.type === 'RACE_SYNC') {
+                handleRaceSync(data);
             } else if (data.type === 'LIVE_ACTION') {
                 handleRemoteLiveAction(data.payload);
             } else if (data.type === 'ERROR') {
@@ -271,26 +525,24 @@ window.OnlineManager = (() => {
         });
 
         conn.on('close', () => {
+            const code = roomCode; // Keep local copy before cleanup
             Notifications.warning('Host Disconnected', 'The master staging room was closed.');
             cleanup();
-            if (typeof EventBus !== 'undefined') EventBus.emit('nav:home');
+            if (typeof EventBus !== 'undefined') {
+                EventBus.emit('multiplayer:disconnected', { roomCode: code });
+                EventBus.emit('nav:home');
+            }
         });
     }
 
-    function lockInClient(username, teamId, driver1Id, driver2Id, staffId) {
+    function lockInClient(username, teamId, driver1Id, driver2Id, staff) {
         myUsername = username || myUsername;
         if (typeof getTeamById === 'function') myTeam = getTeamById(teamId);
         if (typeof getDriverById === 'function') {
             myDrivers = [getDriverById(driver1Id), getDriverById(driver2Id)].filter(Boolean);
         }
 
-        if (typeof STAFF_DATA !== 'undefined') {
-            myStaff = {
-                techDirector: STAFF_DATA.technicalDirectors?.find(s => s.id === staffId) || STAFF_DATA.technicalDirectors?.[0],
-                strategist: STAFF_DATA.chiefStrategists?.[0],
-                pitCrew: STAFF_DATA.pitCrews?.[0]
-            };
-        }
+        myStaff = staff;
 
         // Add/Update My Local Client in onlinePlayers
         const existing = onlinePlayers.find(op => op.connectionId === myConnection?.peer);
@@ -361,6 +613,15 @@ window.OnlineManager = (() => {
         }
     }
 
+    function broadcastAction(type, payload) {
+        const msg = { type: type, ...payload };
+        if (isHost) {
+            clientConnections.forEach(c => { if(c.open) c.send(msg); });
+        } else if (myConnection && myConnection.open) {
+            myConnection.send(msg);
+        }
+    }
+
     function handleRemoteLiveAction(payload) {
         if (!payload || typeof RaceEngine === 'undefined') return;
 
@@ -373,6 +634,149 @@ window.OnlineManager = (() => {
         }
     }
 
+    function handleRaceSync(data) {
+        if (isHost || !data || typeof RaceEngine === 'undefined') return;
+        
+        const state = RaceEngine.getState();
+        if (!state) return;
+        
+        if (data.status && state.status !== data.status) {
+            state.status = data.status;
+        }
+
+        if (data.finished && !state.finished) {
+            // Apply Host authoritative results
+            RaceEngine.finishRace(data.results);
+            return;
+        }
+        
+        data.cars?.forEach(remoteCar => {
+            const localCar = state.cars.find(c => c.id === remoteCar.id);
+            if (localCar) {
+                // Authority Check: Snap position and progress
+                // Reduced threshold for more "Host Screen" feel
+                if (Math.abs(localCar.trackProgress - remoteCar.prog) > 0.02) {
+                    localCar.trackProgress = remoteCar.prog;
+                }
+                localCar.position = remoteCar.pos;
+                localCar.lapCount = remoteCar.lap;
+                
+                // Authoritative DNF
+                if (remoteCar.dnf && localCar.status !== 'DNF') {
+                    localCar.status = 'DNF';
+                    localCar.dnfReason = 'Terminal impact (Host Broadcast)';
+                }
+            }
+        });
+    }
+
+    let skipVotes = new Set();
+    function handleSkipVote(requester) {
+        if (requester === myUsername) return;
+        
+        // Show notification that a vote started
+        Notifications.info('Skip Vote Started', `${requester} initiated a vote to skip.`);
+
+        Modals.confirm({
+            title: 'Skip Race Vote',
+            body: `${requester} wants to skip the rest of the race. Do you agree?`,
+            confirmText: 'Agree (Skip)',
+            cancelText: 'Decline',
+            onConfirm: () => {
+                broadcastAction('SKIP_VOTE_CONFIRM', { voter: myUsername });
+                handleSkipVoteConfirm(myUsername);
+            }
+        });
+    }
+
+    function handleSkipVoteConfirm(voter) {
+        skipVotes.add(voter);
+        
+        if (skipVotes.size >= onlinePlayers.length) {
+            Notifications.success('Skip Vote Passed', 'Syncing authoritative results...');
+            if (typeof RaceEngine !== 'undefined') RaceEngine.skipToEnd();
+            skipVotes.clear();
+        } else {
+            Notifications.info('Vote Recorded', `${skipVotes.size}/${onlinePlayers.length} human constructors have agreed.`);
+        }
+    }
+
+    function toggleWeekendReady() {
+        if (isHost) {
+            const me = onlinePlayers.find(p => p.isHost);
+            if (me) me.isReadyForWeekend = !me.isReadyForWeekend;
+            broadcastLobbyUpdate();
+        } else if (myConnection && myConnection.open) {
+            myConnection.send({ type: 'CLIENT_TOGGLE_WEEKEND_READY' });
+        }
+        // Force Dashboard Refresh
+        if (typeof DashboardScreen !== 'undefined' && DashboardScreen.isPageActive()) {
+            DashboardScreen.render();
+        }
+    }
+
+    function handleNavStage(stage) {
+        if (typeof RaceWeekendScreen !== 'undefined') {
+            RaceWeekendScreen.setStage(stage);
+        }
+    }
+
+    function handleRemoteEvent(event) {
+        if (isHost || !event || typeof RaceEngine === 'undefined') return;
+        
+        const car = RaceEngine.getCar(event.carId);
+        if (car) {
+            EventSystem.applyEventEffects(car, event);
+            
+            // Re-emit for UI and Audio
+            if (typeof EventBus !== 'undefined') {
+                EventBus.emit('race:incident', event);
+            }
+        }
+    }
+
+    function handleQualiSync(data) {
+        if (typeof RaceWeekendScreen !== 'undefined') {
+            RaceWeekendScreen.syncQuali(data);
+        }
+    }
+
+    function handleLiveryUpdate(peerId, livery) {
+        const player = onlinePlayers.find(op => op.connectionId === peerId);
+        if (player) {
+            player.livery = livery;
+            if (isHost) broadcastLobbyUpdate();
+            triggerRender();
+        }
+    }
+
+    function handlePauseRequest(requesterId) {
+        if (!isHost || typeof RaceEngine === 'undefined') return;
+
+        const player = onlinePlayers.find(op => op.connectionId === requesterId);
+        if (!player || player.pauseCredits <= 0) {
+            const conn = clientConnections.find(c => c.peer === requesterId);
+            if (conn) conn.send({ type: 'ERROR', message: 'No pause credits remaining!' });
+            return;
+        }
+
+        // Toggle pause
+        const targetPause = !RaceEngine.isCurrentlyPaused();
+        
+        if (targetPause) {
+            player.pauseCredits--;
+            RaceEngine.pause();
+            Notifications.warning('Race Paused', `${player.username} used a pause credit (${player.pauseCredits} left)`);
+        } else {
+            RaceEngine.resume();
+            Notifications.success('Race Resumed', `Host released the grid.`);
+        }
+
+        broadcastAction('RACE_PAUSE_TOGGLE', { isPaused: targetPause, creditsLeft: player.pauseCredits, requester: player.username });
+        if (typeof PlayerControls !== 'undefined') PlayerControls.refresh();
+        broadcastLobbyUpdate();
+    }
+
     function updateSettings(newSettings) {
         matchSettings = { ...matchSettings, ...newSettings };
         if (isHost) {
@@ -383,6 +787,13 @@ window.OnlineManager = (() => {
     function launchDuel() {
         if (!isHost) {
             Notifications.error('Host Exclusive', 'Only the Host can start the online season.');
+            return;
+        }
+
+        // --- CHECK IF ALL PLAYERS ARE READY ---
+        const unready = onlinePlayers.filter(p => !p.isReady);
+        if (unready.length > 0) {
+            Notifications.error('Grid Not Ready', `${unready.length} Constructors have not locked in their readiness.`);
             return;
         }
 
@@ -412,6 +823,47 @@ window.OnlineManager = (() => {
 
         // Execute Host local Career initiation
         initSynchronizedMultiplayerCareer(pTeam, pDrivers, myStaff, matchSettings, { masterSchedule: masterSchedule, onlinePlayers: onlinePlayers });
+        
+        // Start Periodic Sync
+        startRaceSync();
+    }
+
+    function startRaceSync() {
+        if (!isHost) return;
+        if (syncInterval) clearInterval(syncInterval);
+        
+        syncInterval = setInterval(() => {
+            if (typeof RaceEngine === 'undefined' || !RaceEngine.getState()) return;
+            const state = RaceEngine.getState();
+            
+            const syncData = {
+                type: 'RACE_SYNC',
+                lap: state.currentLap,
+                status: state.status,
+                finished: state.finished,
+                results: state.finished ? state.results : null,
+                cars: state.cars.map(c => ({
+                    id: c.id,
+                    pos: c.position,
+                    prog: c.trackProgress,
+                    lap: c.lapCount,
+                    dnf: c.status === 'DNF'
+                }))
+            };
+            
+            clientConnections.forEach(c => {
+                if (c && c.open) c.send(syncData);
+            });
+            
+            if (state.finished) stopRaceSync();
+        }, 1000); // Authority: 1s sync interval for "Host Screen" feel
+    }
+
+    function stopRaceSync() {
+        if (syncInterval) {
+            clearInterval(syncInterval);
+            syncInterval = null;
+        }
     }
 
     function handleRemoteStart(data) {
@@ -480,7 +932,19 @@ window.OnlineManager = (() => {
         if (uiCallback) uiCallback();
     }
 
-    function cleanup() {
+    function cleanup(isManualExit = false) {
+        stopRaceSync();
+        if (heartbeatInterval) clearInterval(heartbeatInterval);
+        heartbeatInterval = null;
+        
+        // Clear storage only if explicitly leaving or session finished
+        if (isManualExit) {
+            console.log('[OnlineManager] Manual exit: Clearing MP session storage');
+            try {
+                sessionStorage.removeItem('velocity_mp_session');
+            } catch(e) {}
+        }
+        
         clientConnections.forEach(c => { try{c.close();}catch(e){} });
         clientConnections = [];
         if (myConnection) {
@@ -500,12 +964,14 @@ window.OnlineManager = (() => {
     function isConnected() { return isHost || (myConnection && myConnection.open); }
     function getRoomCode() { return roomCode; }
     function getMyUsername() { return myUsername; }
+    function getMyConnectionId() { return isHost ? 'host' : myConnection?.peer; }
     function getMyTeam() { return myTeam; }
     function getMyDrivers() { return myDrivers; }
     function getMyStaff() { return myStaff; }
     function getOnlinePlayers() { return onlinePlayers; }
     function getChatMessages() { return chatMessages; }
     function getSettings() { return matchSettings; }
+    function getLatency() { return lastLatency; }
     function getHostUsername() {
         const h = onlinePlayers.find(op => op.isHost);
         return h ? h.username : 'Host';
@@ -519,18 +985,24 @@ window.OnlineManager = (() => {
         lockInClient,
         sendChat,
         sendLiveAction,
+        broadcastAction,
+        toggleWeekendReady,
         launchDuel,
         updateSettings,
         setUICallback,
+        handleSkipVoteConfirm,
+        isHost: () => isHost,
         isConnected,
         getRoomCode,
         getMyUsername,
+        getMyConnectionId,
         getMyTeam,
         getMyDrivers,
         getMyStaff,
         getOnlinePlayers,
         getChatMessages,
         getSettings,
+        getLatency,
         getHostUsername
     };
 })();
@@ -545,75 +1017,109 @@ const MultiplayerScreen = (() => {
     let currentLobbyView = 'menu'; // 'menu' | 'host_setup' | 'host_staging' | 'join_enter_code' | 'join_select_package' | 'join_staging'
 
     function init() {
+        console.log('[MultiplayerScreen] Initializing UI container...');
         container = document.getElementById('mp-content');
-        if (!container) return;
-        OnlineManager.init();
+        if (!container) {
+            console.error('[MultiplayerScreen] mp-content element missing');
+            return;
+        }
+        
+        if (typeof OnlineManager !== 'undefined') {
+            OnlineManager.init();
+        } else {
+            console.error('[MultiplayerScreen] OnlineManager not found');
+        }
+        
         attachListeners();
     }
 
     function render() {
         if (!container) return;
 
-        if (currentLobbyView === 'menu') {
-            renderMenuView();
-        } else if (currentLobbyView === 'host_setup') {
-            renderHostSetupView();
-        } else if (currentLobbyView === 'host_staging') {
-            renderHostStagingView();
-        } else if (currentLobbyView === 'join_enter_code') {
-            renderJoinEnterCodeView();
-        } else if (currentLobbyView === 'join_select_package') {
-            renderJoinSelectPackageView();
-        } else if (currentLobbyView === 'join_staging') {
-            renderJoinStagingView();
+        try {
+            console.log('[MultiplayerScreen] Rendering view:', currentLobbyView);
+            if (currentLobbyView === 'menu') {
+                renderMenuView();
+            } else if (currentLobbyView === 'host_setup') {
+                renderHostSetupView();
+            } else if (currentLobbyView === 'host_staging') {
+                renderHostStagingView();
+            } else if (currentLobbyView === 'join_enter_code') {
+                renderJoinEnterCodeView();
+            } else if (currentLobbyView === 'join_select_package') {
+                renderJoinSelectPackageView();
+            } else if (currentLobbyView === 'join_staging') {
+                renderJoinStagingView();
+            } else {
+                renderMenuView(); // Fallback
+            }
+            attachUIListeners();
+        } catch (err) {
+            console.error('[MultiplayerScreen] Render crash:', err);
+            container.innerHTML = `
+                <div style="padding: 60px 20px; text-align: center; color: var(--red); font-family: Orbitron; background: #050505; height: 100vh;">
+                    <div style="font-size: 80px; margin-bottom: 20px;">⚠️</div>
+                    <h2 style="letter-spacing: 4px;">ARENA LINK FAILURE</h2>
+                    <p style="color: var(--gray-400); font-family: Rajdhani; font-size: 18px; max-width: 600px; margin: 0 auto 30px;">
+                        A critical error occurred while rendering the cockpit interface. This is likely due to a synchronization glitch in the serverless WebRTC tunnel.
+                    </p>
+                    <div style="display: flex; gap: 15px; justify-content: center;">
+                        <button class="btn btn-glow" onclick="location.reload()" style="border-color: var(--red); color: var(--red); padding: 15px 30px;">REBOOT SYSTEM</button>
+                        <button class="btn" id="err-back-home" style="padding: 15px 30px;">RETURN HOME</button>
+                    </div>
+                    <div style="margin-top: 40px; color: var(--gray-700); font-size: 11px; font-family: monospace;">
+                        ERROR_TRACE: ${escapeHTML(err.message)}
+                    </div>
+                </div>
+            `;
+            container.querySelector('#err-back-home')?.addEventListener('click', () => {
+                if (typeof EventBus !== 'undefined') EventBus.emit('nav:home');
+            });
         }
-        attachUIListeners();
     }
 
     function renderMenuView() {
+        if (!container) return;
+        
+        let myName = 'RACER';
+        try {
+            if (typeof OnlineManager !== 'undefined' && OnlineManager.getMyUsername) {
+                myName = OnlineManager.getMyUsername();
+            }
+        } catch(e) { console.error('myName fetch error'); }
+
         container.innerHTML = `
-            <div class="lobby-container">
+            <div class="lobby-container" style="justify-content: center; align-items: center; background: radial-gradient(circle at center, #1a0505 0%, #000 100%);">
                 <button class="home-btn" id="mp-home-btn" title="Back to Home">⌂</button>
 
-                <div class="lobby-header">
-                    <div>
-                        <h1 class="lobby-title" style="color: #00FF41; text-shadow: 0 0 20px rgba(0,255,65,0.4);">GLOBAL ARENA</h1>
-                        <div class="lobby-tagline">WebRTC Peer-to-Peer Multi-Client Worldwide Online Racing</div>
-                    </div>
-                    <div class="lobby-online-count">
-                        <span class="lobby-online-dot" style="background: #00FF41; box-shadow: 0 0 10px #00FF41;"></span>
-                        <span style="color: #00FF41; font-weight: 700;">FULL GRID SERVERLESS MODE (UP TO 12 PLAYERS)</span>
-                    </div>
+                <div class="lobby-header" style="border: none; text-align: center; flex-direction: column; gap: 10px;">
+                    <h1 class="lobby-title" style="font-size: 60px; color: #FFF; text-shadow: 0 0 30px rgba(255,255,255,0.2);">GLOBAL <span style="color: var(--red);">ARENA</span></h1>
+                    <div class="lobby-tagline" style="font-size: 14px; letter-spacing: 8px;">WORLDWIDE MULTIPLAYER INFRASTRUCTURE</div>
                 </div>
 
-                <div class="lobby-grid" style="margin-top: var(--space-xl);">
+                <div style="font-family: Orbitron; font-size: 11px; color: var(--gray-500); margin-bottom: 20px;">CALLSIGN: <span style="color: var(--blue);">${escapeHTML(myName)}</span></div>
+
+                <div class="lobby-grid" style="max-width: 1000px; width: 100%; grid-template-columns: 1fr 1fr; gap: 30px;">
                     <!-- HOST CARD -->
-                    <div class="create-room-panel quick-action-card" style="border: 2px solid rgba(255,215,0,0.3); display: flex; flex-direction: column; justify-content: space-between;">
-                        <div>
-                            <div class="quick-action-icon" style="font-size: 48px; margin-bottom: 24px;">👑</div>
-                            <div class="quick-action-title" style="color: var(--yellow); font-size: 22px; font-weight: 900;">HOST MASTER CHAMPIONSHIP</div>
-                            <div class="quick-action-desc" style="font-size: 15px; margin-top: 12px; line-height: 1.5;">
-                                Generate an instant Master Room Code. Hand-pick your Constructor Team, lock in your Drivers and Crew, configure Master Track Calendar settings, and host up to 11 human online challengers.
-                            </div>
-                        </div>
-                        <button class="btn btn-glow" id="btn-menu-host" style="margin-top: var(--space-xl); width: 100%; border-color: var(--yellow); color: var(--yellow); font-size: 16px; font-weight: 700; padding: 16px;">
-                            ⚡ CREATE MASTER LOBBY
-                        </button>
+                    <div class="quick-action-card" id="btn-menu-host" style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,215,0,0.2); transition: all 0.3s ease; padding: 40px; cursor: pointer;">
+                        <div style="font-size: 60px; margin-bottom: 20px;">🏟️</div>
+                        <h2 style="font-family: Orbitron; color: var(--yellow); margin-bottom: 15px; letter-spacing: 2px;">CREATE LOBBY</h2>
+                        <p style="font-family: Rajdhani; color: var(--gray-400); line-height: 1.6; font-size: 16px;">Host a custom championship season. Control the calendar, AI difficulty, and invite up to 11 human competitors via secure WebRTC tunnel.</p>
+                        <div style="margin-top: 30px; color: var(--yellow); font-family: Orbitron; font-weight: 800; font-size: 12px; letter-spacing: 2px;">ESTABLISH MASTER BROKER →</div>
                     </div>
 
                     <!-- JOIN CARD -->
-                    <div class="room-browser-panel quick-action-card" style="border: 2px solid rgba(0,128,255,0.3); display: flex; flex-direction: column; justify-content: space-between;">
-                        <div>
-                            <div class="quick-action-icon" style="font-size: 48px; margin-bottom: 24px;">⚔️</div>
-                            <div class="quick-action-title" style="color: var(--blue); font-size: 22px; font-weight: 900;">JOIN MASTER LOBBY</div>
-                            <div class="quick-action-desc" style="font-size: 15px; margin-top: 12px; line-height: 1.5;">
-                                Enter an active Master Room Code. Choose your distinct Challenger Constructor Team from the exclusive dynamic pool and race head-to-head in a massive 24-car field.
-                            </div>
-                        </div>
-                        <button class="btn btn-glow" id="btn-menu-join" style="margin-top: var(--space-xl); width: 100%; border-color: var(--blue); color: var(--blue); font-size: 16px; font-weight: 700; padding: 16px;">
-                            🚀 ENTER ROOM CODE
-                        </button>
+                    <div class="quick-action-card" id="btn-menu-join" style="background: rgba(255,255,255,0.03); border: 1px solid rgba(0,128,255,0.2); transition: all 0.3s ease; padding: 40px; cursor: pointer;">
+                        <div style="font-size: 60px; margin-bottom: 20px;">📡</div>
+                        <h2 style="font-family: Orbitron; color: var(--blue); margin-bottom: 15px; letter-spacing: 2px;">JOIN LOBBY</h2>
+                        <p style="font-family: Rajdhani; color: var(--gray-400); line-height: 1.6; font-size: 16px;">Enter a Master Room Code to join an existing session. Pick from the available teams and drivers to challenge the grid in real-time.</p>
+                        <div style="margin-top: 30px; color: var(--blue); font-family: Orbitron; font-weight: 800; font-size: 12px; letter-spacing: 2px;">SEEK ACTIVE UPLINK →</div>
                     </div>
+                </div>
+
+                <div style="margin-top: 50px; display: flex; align-items: center; gap: 15px; background: rgba(0,255,65,0.05); padding: 12px 25px; border-radius: 50px; border: 1px solid rgba(0,255,65,0.2);">
+                    <span class="lobby-online-dot" style="background: var(--green);"></span>
+                    <span style="font-family: Orbitron; font-size: 11px; color: var(--green); font-weight: 800; letter-spacing: 2px;">SERVERLESS P2P PROTOCOL V1.2 ONLINE</span>
                 </div>
             </div>
         `;
@@ -668,10 +1174,22 @@ const MultiplayerScreen = (() => {
                             </div>
                         </div>
 
-                        <div class="form-group">
-                            <label class="form-label">Select Pit Crew / Technical Director</label>
-                            <select class="select" id="hs-staff">
-                                ${STAFF_DATA?.technicalDirectors?.map(s => `<option value="${s.id}">Skill ${s.skill || 85} • ${s.name} (${s.specialty})</option>`).join('') || '<option value="s1">Elite Pit Crew</option>'}
+                        <div class="form-group" style="margin-top: 15px;">
+                            <label class="form-label">TECHNICAL DIRECTOR</label>
+                            <select class="select" id="hs-staff-techdir">
+                                ${STAFF_DATA?.technicalDirectors?.map(s => `<option value="${s.id}">Skill ${s.skill || 85} • ${s.name} (${s.specialty})</option>`).join('')}
+                            </select>
+                        </div>
+                        <div class="form-group" style="margin-top: 15px;">
+                            <label class="form-label">CHIEF STRATEGIST</label>
+                            <select class="select" id="hs-staff-strategist">
+                                ${STAFF_DATA?.chiefStrategists?.map(s => `<option value="${s.id}">Skill ${s.skill || 80} • ${s.name}</option>`).join('')}
+                            </select>
+                        </div>
+                        <div class="form-group" style="margin-top: 15px;">
+                            <label class="form-label">PIT CREW SQUAD</label>
+                            <select class="select" id="hs-staff-pitcrew">
+                                ${STAFF_DATA?.pitCrews?.map(s => `<option value="${s.id}">Efficiency ${s.skill || 80} • ${s.name}</option>`).join('')}
                             </select>
                         </div>
 
@@ -685,9 +1203,12 @@ const MultiplayerScreen = (() => {
     }
 
     function renderHostStagingView() {
-        const team = OnlineManager.getMyTeam();
-        const onlinePlayers = OnlineManager.getOnlinePlayers();
-        const settings = OnlineManager.getSettings();
+        if (!container) return;
+        
+        const team = typeof OnlineManager !== 'undefined' ? OnlineManager.getMyTeam() : null;
+        const onlinePlayers = typeof OnlineManager !== 'undefined' ? OnlineManager.getOnlinePlayers() : [];
+        const settings = typeof OnlineManager !== 'undefined' ? OnlineManager.getSettings() : { races: 5, speed: 2, difficulty: 'COMPETITIVE' };
+        const latency = typeof OnlineManager !== 'undefined' ? OnlineManager.getLatency() : 0;
 
         container.innerHTML = `
             <div class="lobby-container">
@@ -695,110 +1216,120 @@ const MultiplayerScreen = (() => {
 
                 <div class="lobby-header">
                     <div>
-                        <h1 class="lobby-title" style="color: var(--green);">HOST LOBBY • MASTER STAGING</h1>
-                        <div class="lobby-tagline">Constructor Locked! Ready for up to 12 Human Constructors</div>
+                        <h1 class="lobby-title" style="color: var(--yellow); text-shadow: 0 0 20px rgba(255,215,0,0.3);">CONSTRUCTOR COMMAND CENTER</h1>
+                        <div class="lobby-tagline">Master Host Broker • Active Staging</div>
                     </div>
-                    <div>
-                        <span class="badge" style="background: var(--green); color: var(--black); font-family: Orbitron; font-weight: 900; padding: 8px 16px;">TEAM LOCKED 🔒</span>
+                    <div style="display: flex; gap: 12px; align-items: center;">
+                        <div style="font-family: Orbitron; font-size: 10px; color: ${latency < 100 ? 'var(--green)' : 'var(--yellow)'};">🛰️ ${latency}ms</div>
+                        <div class="lobby-online-count" style="background: rgba(255,215,0,0.1); padding: 8px 16px; border-radius: 8px; border: 1px solid var(--yellow); display: flex; align-items: center; gap: 10px;">
+                            <span class="lobby-online-dot" style="background: var(--yellow);"></span>
+                            <span style="color: var(--yellow); font-family: Orbitron; font-weight: 800; font-size: 12px;">LOBBY CODE: ${OnlineManager.getRoomCode()}</span>
+                            <button class="btn btn-glow" id="btn-copy-code" style="font-size: 9px; padding: 4px 8px; border-color: var(--yellow); color: var(--yellow);">COPY</button>
+                        </div>
                     </div>
                 </div>
 
-                <div class="lobby-grid">
-                    <!-- LEFT: ONLINE CONSTRUCTORS GRID & START SEASON -->
-                    <div style="display: flex; flex-direction: column; gap: 20px;">
-                        <div class="create-room-panel" style="border-color: var(--green); background: rgba(0,255,65,0.02);">
-                            <div class="panel-title" style="color: var(--green);">
+                <div class="room-waiting" style="grid-template-columns: 1fr 1.2fr 0.8fr; height: calc(100vh - 180px);">
+                    <!-- COL 1: GRID & LAUNCH -->
+                    <div style="display: flex; flex-direction: column; gap: 20px; overflow-y: auto; padding-right: 10px;">
+                        <div class="create-room-panel" style="border-color: var(--yellow);">
+                            <div class="panel-title" style="color: var(--yellow);">
                                 <span class="panel-title-icon">🏎️</span>
-                                <span>ONLINE CONSTRUCTORS GRID (${onlinePlayers.length}/12 JOINED)</span>
+                                <span>ONLINE GRID (${onlinePlayers.length}/12)</span>
                             </div>
-                            <div style="display: flex; flex-direction: column; gap: 8px; max-height: 280px; overflow-y: auto; padding-right: 6px;">
+                            <div class="room-player-list">
                                 ${onlinePlayers.map(op => `
-                                    <div class="room-player-item" style="background: rgba(0,0,0,0.6); border: 1px solid var(--green);">
-                                        <div class="player-avatar" style="background: ${op.team?.color || '#111'}; color: white; font-family: Orbitron; font-weight: 900; font-size: 16px;">
+                                    <div class="room-player-item" style="border-left: 4px solid ${op.team?.color || 'var(--yellow)'}; background: rgba(20,20,20,0.8); cursor: ${op.username === OnlineManager.getMyUsername() ? 'pointer' : 'default'}" 
+                                        ${op.username === OnlineManager.getMyUsername() ? 'id="toggle-my-ready"' : ''}>
+                                        <div class="player-avatar" style="background: ${op.team?.color || '#333'}; color: white; font-family: Orbitron; font-weight: 900; box-shadow: 0 0 10px ${op.team?.color}44;">
                                             ${op.team?.shortName || 'V'}
                                         </div>
-                                        <div class="player-name" style="font-family: Rajdhani; font-size: 16px;">
-                                            <b style="color: white">${escapeHTML(op.username)}</b> • <span style="color: var(--green); font-family: Orbitron; font-size: 13px;">${escapeHTML(op.team?.name)}</span>
-                                            <div style="font-size: 11px; color: var(--yellow);">Drivers: ${op.drivers?.map(d => d.name).join(' & ') || 'Elite Roster'}</div>
+                                        <div class="player-name">
+                                            <div style="font-weight: 800; font-size: 15px; color: #FFF;">${escapeHTML(op.username)} ${op.isHost ? '<span class="player-host-badge">HOST</span>' : ''}</div>
+                                            <div style="font-size: 11px; color: var(--gray-400); font-family: Orbitron;">${escapeHTML(op.team?.name || 'Managing AI Team')}</div>
                                         </div>
-                                        <span class="badge" style="background: var(--green); color: black; font-family: Orbitron; font-weight: 900; padding: 4px 10px; font-size: 10px;">
-                                            ${op.isHost ? '👑 HOST READY' : '🏁 READY'}
-                                        </span>
+                                        <div class="player-ready ${op.isReady ? 'is-ready' : ''}">
+                                            ${op.isReady ? '✓' : ''}
+                                        </div>
                                     </div>
                                 `).join('')}
+                                ${onlinePlayers.length < 12 ? `<div style="padding: 16px; border: 1px dashed var(--gray-700); border-radius: 8px; text-align: center; color: var(--gray-600); font-family: Rajdhani; font-size: 13px;">Awaiting more challengers...</div>` : ''}
                             </div>
                         </div>
 
-                        <!-- MATCH CALENDAR SETTINGS (HOST EXCLUSIVES) -->
-                        <div class="create-room-panel">
-                            <div class="panel-title" style="color: var(--yellow);">
-                                <span class="panel-title-icon">⚙️</span>
-                                <span>CHAMPIONSHIP CALENDAR (HOST EXCLUSIVES)</span>
-                            </div>
+                        <div style="font-family: Rajdhani; font-size: 12px; color: var(--gray-500); text-align: center;">Tip: Click your card above to toggle READY status</div>
 
-                            <div class="create-room-form">
-                                <div class="form-row">
-                                    <div class="form-group">
-                                        <label class="form-label">Season Races</label>
-                                        <select class="select" id="h-races-sel">
-                                            <option value="1" ${settings.races === 1 ? 'selected' : ''}>1 Race (Sprint Duel)</option>
-                                            <option value="3" ${settings.races === 3 ? 'selected' : ''}>3 Races (Mini Cup)</option>
-                                            <option value="5" ${settings.races === 5 ? 'selected' : ''}>5 Races (Short Season)</option>
-                                            <option value="10" ${settings.races === 10 ? 'selected' : ''}>10 Races (Half Season)</option>
-                                            <option value="16" ${settings.races === 16 ? 'selected' : ''}>16 Races (Full Season)</option>
-                                        </select>
-                                    </div>
-                                    <div class="form-group">
-                                        <label class="form-label">AI Grid Difficulty</label>
-                                        <select class="select" id="h-diff-sel">
-                                            <option value="CASUAL" ${settings.difficulty === 'CASUAL' ? 'selected' : ''}>Rookie AI</option>
-                                            <option value="COMPETITIVE" ${settings.difficulty === 'COMPETITIVE' ? 'selected' : ''}>Pro AI</option>
-                                            <option value="ELITE" ${settings.difficulty === 'ELITE' ? 'selected' : ''}>Legendary AI</option>
-                                        </select>
-                                    </div>
-                                </div>
-                                <div class="form-row">
-                                    <div class="form-group">
-                                        <label class="form-label">Simulation Pace</label>
-                                        <select class="select" id="h-speed-sel">
-                                            <option value="1" ${settings.speed === 1 ? 'selected' : ''}>1s/lap (Fast)</option>
-                                            <option value="2" ${settings.speed === 2 ? 'selected' : ''}>2s/lap (Standard)</option>
-                                            <option value="5" ${settings.speed === 5 ? 'selected' : ''}>5s/lap (Strategic)</option>
-                                        </select>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- START SEASON BUTTON -->
-                        <button class="btn btn-create-room" id="btn-execute-launch" style="padding: 20px; font-size: 18px; font-family: Orbitron; font-weight: 900; border-color: var(--green); color: var(--green); box-shadow: 0 0 30px rgba(0,255,65,0.3); cursor: pointer;">
-                            ${onlinePlayers.length >= 2 ? '🚀 START GLOBAL CHAMPIONSHIP SEASON (' + onlinePlayers.length + ' JOINED)' : '🚀 START CHAMPIONSHIP SEASON (VS AI GRID)'}
+                        <button class="btn btn-create-room" id="btn-execute-launch" 
+                            style="margin-top: auto; padding: 24px; font-size: 20px; border-color: var(--green); color: var(--green); box-shadow: 0 0 30px rgba(0,255,65,0.4); animation: pulse-green 2s infinite; ${onlinePlayers.every(p => p.isReady) ? '' : 'opacity: 0.5; filter: grayscale(1);'}">
+                            ${onlinePlayers.every(p => p.isReady) ? '🚀 LAUNCH WORLD CHAMPIONSHIP' : '⌛ WAITING FOR CONSTRUCTORS...'}
                         </button>
                     </div>
 
-                    <!-- RIGHT: ROOM CODE & LIVE CHAT -->
-                    <div style="display: flex; flex-direction: column; gap: 20px;">
-                        <!-- ROOM CODE BOX -->
-                        <div class="room-browser-panel" style="padding: 20px;">
-                            <div class="panel-title" style="color: #00FF41; justify-content: center;">📻 MASTER ROOM CODE</div>
-                            <div class="join-code-section" style="justify-content: center; background: rgba(0,255,65,0.05); border: 2px dashed #00FF41; margin-top: 4px; padding: 16px;">
-                                <div class="input" style="font-size: 42px; font-weight: 900; color: #00FF41; user-select: all; cursor: pointer; border: none; background: transparent; text-shadow: 0 0 15px #00FF41;" id="display-room-code" title="Click to copy Code">
-                                    ${OnlineManager.getRoomCode() || 'GENERATING...'}
+                    <!-- COL 2: SEASON CALENDAR & AI CONFIG -->
+                    <div style="display: flex; flex-direction: column; gap: 20px; overflow-y: auto; padding-right: 10px;">
+                        <div class="create-room-panel">
+                            <div class="panel-title" style="color: var(--blue);">
+                                <span class="panel-title-icon">⚙️</span>
+                                <span>SEASON CONFIGURATION</span>
+                            </div>
+                            <div class="create-room-form">
+                                <div class="form-group">
+                                    <label class="form-label">Number of Rounds</label>
+                                    <select class="select" id="h-races-sel">
+                                        <option value="1" ${settings.races === 1 ? 'selected' : ''}>1 Race (Sudden Death)</option>
+                                        <option value="3" ${settings.races === 3 ? 'selected' : ''}>3 Races (Sprint Series)</option>
+                                        <option value="5" ${settings.races === 5 ? 'selected' : ''}>5 Races (Standard Cup)</option>
+                                        <option value="10" ${settings.races === 10 ? 'selected' : ''}>10 Races (Full Season)</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">AI Difficulty Level</label>
+                                    <select class="select" id="h-diff-sel">
+                                        <option value="CASUAL" ${settings.difficulty === 'CASUAL' ? 'selected' : ''}>Casual (For Fun)</option>
+                                        <option value="COMPETITIVE" ${settings.difficulty === 'COMPETITIVE' ? 'selected' : ''}>Competitive (Pro)</option>
+                                        <option value="ELITE" ${settings.difficulty === 'ELITE' ? 'selected' : ''}>Elite (Hardcore)</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">Race Pace (Simulation Speed)</label>
+                                    <select class="select" id="h-speed-sel">
+                                        <option value="1" ${settings.speed === 1 ? 'selected' : ''}>1X (Real Time)</option>
+                                        <option value="2" ${settings.speed === 2 ? 'selected' : ''}>2X (Standard)</option>
+                                        <option value="5" ${settings.speed === 5 ? 'selected' : ''}>5X (Strategic)</option>
+                                        <option value="10" ${settings.speed === 10 ? 'selected' : ''}>10X (Fast)</option>
+                                        <option value="30" ${settings.speed === 30 ? 'selected' : ''}>30X (Blitz)</option>
+                                    </select>
                                 </div>
                             </div>
-                            <div style="text-align: center; font-size: 12px; color: var(--gray-400); margin-top: 8px;">Share this 4-Digit Code with challengers to invite up to 12 Constructors!</div>
                         </div>
 
-                        <!-- LIVE CHAT -->
-                        <div class="room-chat" style="flex: 1; min-height: 220px; display: flex; flex-direction: column;">
-                            <div class="room-chat-header" style="background: var(--surface-2);">STAGING CHAT & EMOJIS</div>
-                            <div class="room-chat-messages" id="staging-chat-messages" style="flex: 1; overflow-y: auto;">
-                                ${OnlineManager.getChatMessages().map(m => `<div class="chat-message"><span class="chat-sender" style="color: ${m.color}">${m.sender}:</span><span>${escapeHTML(m.text)}</span></div>`).join('')}
+                        <div class="create-room-panel" style="background: rgba(0,0,0,0.3);">
+                            <div class="panel-title" style="color: var(--gray-400); font-size: 14px;">
+                                <span class="panel-title-icon">🏁</span>
+                                <span>SYNCHRONIZED TRACK POOL</span>
+                            </div>
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                                ${TRACKS_DATA.slice(0, 6).map(t => `<div style="font-family: Rajdhani; font-size: 12px; color: var(--gray-500); padding: 4px; background: rgba(255,255,255,0.03); border-radius: 4px;">${t.flag} ${t.name}</div>`).join('')}
+                                <div style="font-family: Rajdhani; font-size: 12px; color: var(--blue); padding: 4px; text-align: center; grid-column: span 2;">+ RANDOM TRACKS POOLED</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- COL 3: COMMS & BROKER STATUS -->
+                    <div style="display: flex; flex-direction: column; gap: 20px;">
+                        <div class="room-chat" style="flex: 1;">
+                            <div class="room-chat-header">PADDOCK RADIO</div>
+                            <div class="room-chat-messages" id="staging-chat-messages">
+                                ${OnlineManager.getChatMessages().map(m => `<div class="chat-message" style="border-left: 2px solid ${m.color}88;"><span class="chat-sender" style="color: ${m.color}">${m.sender}:</span><span>${escapeHTML(m.text)}</span></div>`).join('')}
                             </div>
                             <div class="room-chat-input">
-                                <input type="text" class="input" style="flex: 1; padding: 12px;" id="staging-chat-input" placeholder="Send message / emojis...">
-                                <button class="btn btn-glow" id="btn-staging-send-chat" style="padding: 0 20px;">💬</button>
+                                <input type="text" class="input" id="staging-chat-input" placeholder="Message paddock...">
+                                <button class="btn btn-glow" id="btn-staging-send-chat">SEND</button>
                             </div>
+                        </div>
+                        
+                        <div class="create-room-panel" style="padding: 16px; background: rgba(0,0,0,0.5);">
+                            <div style="font-family: Orbitron; font-size: 10px; color: var(--gray-500); text-align: center; letter-spacing: 2px;">WEBRTC BROKER STATUS: <span style="color: var(--green);">OPERATIONAL</span></div>
                         </div>
                     </div>
                 </div>
@@ -807,6 +1338,8 @@ const MultiplayerScreen = (() => {
     }
 
     function renderJoinEnterCodeView() {
+        if (!container) return;
+
         container.innerHTML = `
             <div class="lobby-container">
                 <button class="home-btn" id="mp-home-btn" title="Back to Home">⌂</button>
@@ -828,8 +1361,8 @@ const MultiplayerScreen = (() => {
                     </div>
 
                     <div class="create-room-form" style="margin-top: 24px;">
-                        <input type="text" class="input" id="js-code-box" placeholder="e.g. 8492" style="font-family: Orbitron; font-size: 40px; font-weight: 900; text-align: center; letter-spacing: 12px; padding: 24px; border: 2px solid var(--blue); color: var(--blue); max-width: 350px; margin: 0 auto; box-shadow: 0 0 25px rgba(0,128,255,0.3);">
-                        <div style="font-size: 13px; color: var(--gray-400); margin-top: 12px;">Ask the Host for their 4-Digit Code to establish an immediate WebRTC data uplink.</div>
+                        <input type="text" class="input" id="js-code-box" placeholder="e.g. 8492" style="font-family: Orbitron; font-size: 40px; font-weight: 900; text-align: center; letter-spacing: 12px; padding: 24px; border: 2px solid var(--blue); color: var(--blue); max-width: 350px; margin: 0 auto; box-shadow: 0 0 25px rgba(0,128,255,0.3); text-transform: uppercase;">
+                        <div style="font-size: 13px; color: var(--gray-400); margin-top: 12px;">Ask the Host for their unique SALT-based Code to establish an immediate WebRTC data uplink.</div>
 
                         <button class="btn btn-create-room" id="btn-execute-seek" style="margin-top: 36px; border-color: var(--blue); color: var(--blue); box-shadow: 0 0 30px rgba(0,128,255,0.3); font-family: Orbitron; font-weight: 900; font-size: 18px; padding: 20px;">
                             ⚡ SEEK HOST & CONNECT UPLINK
@@ -841,10 +1374,10 @@ const MultiplayerScreen = (() => {
     }
 
     function renderJoinSelectPackageView() {
-        const onlinePlayers = OnlineManager.getOnlinePlayers();
-        const takenTeamIds = onlinePlayers.map(op => op.team?.id).filter(Boolean);
-        const takenDriverIds = [];
-        onlinePlayers.forEach(op => op.drivers?.forEach(d => takenDriverIds.push(d.id)));
+        if (!container) return;
+        
+        const players = typeof OnlineManager !== 'undefined' ? OnlineManager.getOnlinePlayers() : [];
+        const myName = typeof OnlineManager !== 'undefined' ? OnlineManager.getMyUsername() : 'CHALLENGER';
 
         container.innerHTML = `
             <div class="lobby-container">
@@ -852,67 +1385,91 @@ const MultiplayerScreen = (() => {
 
                 <div class="lobby-header">
                     <div>
-                        <h1 class="lobby-title" style="color: var(--blue);">JOIN MASTER STAGING • STEP 2</h1>
-                        <div class="lobby-tagline">Connected to Master Broker! Select your distinct Challenger package</div>
+                        <h1 class="lobby-title" style="color: var(--blue);">JOIN STAGING • CONSTRUCTOR CONFIG</h1>
+                        <div class="lobby-tagline">Uplink Stable • Select your unique season roster</div>
                     </div>
                     <div>
-                        <span class="badge" style="background: #00FF41; color: black; font-family: Orbitron; font-weight: 900; padding: 8px 16px;">UPLINK ACTIVE 📡</span>
+                        <span class="badge" style="background: var(--blue); color: white; font-family: Orbitron; font-weight: 900; padding: 8px 16px; box-shadow: 0 0 15px rgba(0,128,255,0.4);">UPLINK ACTIVE 📡</span>
                     </div>
                 </div>
 
-                <div class="create-room-panel" style="max-width: 800px; margin: 0 auto; width: 100%; border-color: var(--blue);">
-                    <div class="panel-title" style="color: var(--blue);">
+                <div class="create-room-panel" style="max-width: 900px; margin: 0 auto; width: 100%; border-color: var(--blue); background: rgba(0,0,0,0.4);">
+                    <div class="panel-title" style="color: var(--blue); border-bottom: 1px solid rgba(0,128,255,0.2); padding-bottom: 15px;">
                         <span class="panel-title-icon">⚔️</span>
-                        <span>CHALLENGER SETUP (TAKEN TEAMS & DRIVERS EXCLUDED)</span>
+                        <span>CHALLENGER PACKAGE SETUP</span>
                     </div>
 
-                    <div class="create-room-form">
+                    <div class="create-room-form" style="margin-top: 20px;">
                         <div class="form-group">
-                            <label class="form-label">Your Challenger Username</label>
-                            <input type="text" class="input" id="jsp-user" value="${OnlineManager.getMyUsername()}" style="font-family: Orbitron; font-weight: 700; font-size: 18px;">
+                            <label class="form-label">CHALLENGER CALLSIGN</label>
+                            <input type="text" class="input" id="jsp-user" value="${escapeHTML(myName)}" style="font-family: Orbitron; font-weight: 900; font-size: 20px; color: var(--blue);">
                         </div>
 
-                        <!-- Team Selection GUI (Exactly like Single Player #quick-team-select) -->
-                        <div class="form-group">
-                            <label class="form-label">Select Distinct Challenger Constructor Team</label>
-                            <select class="select" id="jsp-team">
-                                ${TEAMS_DATA.map(t => {
-                                    const takenBy = onlinePlayers.find(op => op.team?.id === t.id);
-                                    return `<option value="${t.id}" ${takenBy ? 'disabled' : ''}>${t.flag} ${t.name} ${takenBy ? `🛑 [TAKEN BY ${takenBy.username}]` : ''}</option>`;
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 30px; margin-top: 10px;">
+                            <div class="form-group">
+                                <label class="form-label">CONSTRUCTOR TEAM</label>
+                                <select class="select" id="jsp-team" style="height: 50px;">
+                                    ${(typeof TEAMS_DATA !== 'undefined' ? TEAMS_DATA : []).map(t => {
+                                        const takenBy = players.find(op => op.team?.id === t.id);
+                                        return `<option value="${t.id}" ${takenBy ? 'disabled' : ''}>${t.flag} ${t.name} ${takenBy ? `(TAKEN BY ${takenBy.username})` : ''}</option>`;
+                                    }).join('')}
+                                </select>
+                            </div>
+
+                            <div style="display: flex; flex-direction: column; gap: 15px;">
+                                <div class="form-group">
+                                    <label class="form-label">LEAD DRIVER</label>
+                                    <select class="select" id="jsp-driver1">
+                                        ${(typeof DRIVERS_DATA !== 'undefined' ? DRIVERS_DATA : []).map(d => {
+                                            const takenBy = players.find(op => op.drivers?.some(od => od.id === d.id));
+                                            return `<option value="${d.id}" ${takenBy ? 'disabled' : ''}>Pace ${d.stats?.pace || 80} • ${d.flag || ''} ${d.name} ${takenBy ? `(SIGNED BY ${takenBy.username})` : ''}</option>`;
+                                        }).join('')}
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">SECONDARY DRIVER</label>
+                                    <select class="select" id="jsp-driver2">
+                                        ${(typeof DRIVERS_DATA !== 'undefined' ? DRIVERS_DATA : []).map(d => {
+                                            const takenBy = players.find(op => op.drivers?.some(od => od.id === d.id));
+                                            return `<option value="${d.id}" ${takenBy ? 'disabled' : ''}>Pace ${d.stats?.pace || 80} • ${d.flag || ''} ${d.name} ${takenBy ? `(SIGNED BY ${takenBy.username})` : ''}</option>`;
+                                        }).join('')}
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="form-group" style="margin-top: 15px;">
+                            <label class="form-label">TECHNICAL DIRECTOR</label>
+                            <select class="select" id="jsp-staff-techdir">
+                                ${(STAFF_DATA?.technicalDirectors || []).map(s => {
+                                    const takenBy = players.find(op => op.staff?.techDirector?.id === s.id);
+                                    return `<option value="${s.id}" ${takenBy ? 'disabled' : ''}>Skill ${s.skill || 85} • ${s.name} ${takenBy ? `(SIGNED BY ${takenBy.username})` : ''}</option>`;
                                 }).join('')}
                             </select>
                         </div>
 
-                        <div class="form-row">
-                            <div class="form-group">
-                                <label class="form-label">Select Distinct Driver 1</label>
-                                <select class="select" id="jsp-driver1">
-                                    ${DRIVERS_DATA.slice(0, Math.floor(DRIVERS_DATA.length/2)).map(d => {
-                                        const takenBy = onlinePlayers.find(op => op.drivers?.some(od => od.id === d.id));
-                                        return `<option value="${d.id}" ${takenBy ? 'disabled' : ''}>Pace ${d.stats?.pace || 80} • ${d.flag || ''} ${d.name} ${takenBy ? `🛑 [SIGNED BY ${takenBy.username}]` : ''}</option>`;
-                                    }).join('')}
-                                </select>
-                            </div>
-                            <div class="form-group">
-                                <label class="form-label">Select Distinct Driver 2</label>
-                                <select class="select" id="jsp-driver2">
-                                    ${DRIVERS_DATA.slice(Math.floor(DRIVERS_DATA.length/2)).map(d => {
-                                        const takenBy = onlinePlayers.find(op => op.drivers?.some(od => od.id === d.id));
-                                        return `<option value="${d.id}" ${takenBy ? 'disabled' : ''}>Pace ${d.stats?.pace || 80} • ${d.flag || ''} ${d.name} ${takenBy ? `🛑 [SIGNED BY ${takenBy.username}]` : ''}</option>`;
-                                    }).join('')}
-                                </select>
-                            </div>
-                        </div>
-
-                        <div class="form-group">
-                            <label class="form-label">Select Pit Crew / Technical Director</label>
-                            <select class="select" id="jsp-staff">
-                                ${STAFF_DATA?.technicalDirectors?.map(s => `<option value="${s.id}">Skill ${s.skill || 85} • ${s.name} (${s.specialty})</option>`).join('') || '<option value="s1">Elite Pit Crew</option>'}
+                        <div class="form-group" style="margin-top: 15px;">
+                            <label class="form-label">CHIEF STRATEGIST</label>
+                            <select class="select" id="jsp-staff-strategist">
+                                ${(STAFF_DATA?.chiefStrategists || []).map(s => {
+                                    const takenBy = players.find(op => op.staff?.strategist?.id === s.id);
+                                    return `<option value="${s.id}" ${takenBy ? 'disabled' : ''}>Skill ${s.skill || 80} • ${s.name} ${takenBy ? `(SIGNED BY ${takenBy.username})` : ''}</option>`;
+                                }).join('')}
                             </select>
                         </div>
 
-                        <button class="btn btn-create-room" id="btn-lock-client-final" style="margin-top: 32px; border-color: var(--blue); color: var(--blue); box-shadow: 0 0 25px rgba(0,128,255,0.3); font-family: Orbitron; font-weight: 900;">
-                            🔒 LOCK IN CONSTRUCTOR & OPEN MASTER READY UPLINK
+                        <div class="form-group" style="margin-top: 15px;">
+                            <label class="form-label">PIT CREW SQUAD</label>
+                            <select class="select" id="jsp-staff-pitcrew">
+                                ${(STAFF_DATA?.pitCrews || []).map(s => {
+                                    const takenBy = players.find(op => op.staff?.pitCrew?.id === s.id);
+                                    return `<option value="${s.id}" ${takenBy ? 'disabled' : ''}>Efficiency ${s.skill || 80} • ${s.name} ${takenBy ? `(SIGNED BY ${takenBy.username})` : ''}</option>`;
+                                }).join('')}
+                            </select>
+                        </div>
+
+                        <button class="btn btn-create-room" id="btn-lock-client-final" style="margin-top: 40px; border-color: var(--blue); color: var(--blue); box-shadow: 0 0 25px rgba(0,128,255,0.3); font-family: Orbitron; font-weight: 900; font-size: 18px;">
+                            🔒 TRANSMIT READY SIGNAL TO HOST
                         </button>
                     </div>
                 </div>
@@ -921,10 +1478,13 @@ const MultiplayerScreen = (() => {
     }
 
     function renderJoinStagingView() {
-        const team = OnlineManager.getMyTeam();
-        const onlinePlayers = OnlineManager.getOnlinePlayers();
-        const settings = OnlineManager.getSettings();
-        const hostName = OnlineManager.getHostUsername();
+        if (!container) return;
+        
+        const team = typeof OnlineManager !== 'undefined' ? OnlineManager.getMyTeam() : null;
+        const onlinePlayers = typeof OnlineManager !== 'undefined' ? OnlineManager.getOnlinePlayers() : [];
+        const settings = typeof OnlineManager !== 'undefined' ? OnlineManager.getSettings() : { races: 5, speed: 2, difficulty: 'COMPETITIVE' };
+        const hostName = typeof OnlineManager !== 'undefined' ? OnlineManager.getHostUsername() : 'Host';
+        const latency = typeof OnlineManager !== 'undefined' ? OnlineManager.getLatency() : 0;
 
         container.innerHTML = `
             <div class="lobby-container">
@@ -932,10 +1492,11 @@ const MultiplayerScreen = (() => {
 
                 <div class="lobby-header">
                     <div>
-                        <h1 class="lobby-title" style="color: var(--blue);">JOIN LOBBY • MASTER STAGING</h1>
-                        <div class="lobby-tagline">Constructor Locked! Waiting for Host to Launch The Global Season</div>
+                        <h1 class="lobby-title" style="color: var(--blue); text-shadow: 0 0 20px rgba(0,128,255,0.3);">CHALLENGER UPLINK ACTIVE</h1>
+                        <div class="lobby-tagline">Connected to Master Broker • Staging Package Locked</div>
                     </div>
-                    <div>
+                    <div style="display: flex; gap: 12px; align-items: center;">
+                        <div style="font-family: Orbitron; font-size: 10px; color: ${latency < 100 ? 'var(--green)' : 'var(--yellow)'};">🛰️ ${latency}ms</div>
                         <span class="badge" style="background: var(--green); color: var(--black); font-family: Orbitron; font-weight: 900; padding: 8px 16px;">PACKAGE READY 🏁</span>
                     </div>
                 </div>
@@ -950,51 +1511,76 @@ const MultiplayerScreen = (() => {
                             </div>
                             <div style="display: flex; flex-direction: column; gap: 8px; max-height: 280px; overflow-y: auto; padding-right: 6px;">
                                 ${onlinePlayers.map(op => `
-                                    <div class="room-player-item" style="background: rgba(0,0,0,0.6); border: 1px solid ${op.username === OnlineManager.getMyUsername() ? 'var(--blue)' : 'var(--green)'};">
-                                        <div class="player-avatar" style="background: ${op.team?.color || '#111'}; color: white; font-family: Orbitron; font-weight: 900; font-size: 16px;">
+                                    <div class="room-player-item" 
+                                        ${op.username === OnlineManager.getMyUsername() ? 'id="toggle-my-ready"' : ''} 
+                                        style="border-left: 4px solid ${op.team?.color || 'var(--blue)'}; background: rgba(20,20,20,0.8); cursor: ${op.username === OnlineManager.getMyUsername() ? 'pointer' : 'default'}">
+                                        <div class="player-avatar" style="background: ${op.team?.color || '#333'}; color: white; font-family: Orbitron; font-weight: 900; box-shadow: 0 0 10px ${op.team?.color}44;">
                                             ${op.team?.shortName || 'V'}
                                         </div>
-                                        <div class="player-name" style="font-family: Rajdhani; font-size: 16px;">
-                                            <b style="color: white">${escapeHTML(op.username)}</b> ${op.username === OnlineManager.getMyUsername() ? '<span style="color:var(--blue)">(You)</span>' : ''} • <span style="color: var(--green); font-family: Orbitron; font-size: 13px;">${escapeHTML(op.team?.name)}</span>
-                                            <div style="font-size: 11px; color: var(--yellow);">Drivers: ${op.drivers?.map(d => d.name).join(' & ') || 'Elite Roster'}</div>
+                                        <div class="player-name">
+                                            <div style="font-weight: 800; font-size: 15px; color: #FFF;">${escapeHTML(op.username)} ${op.isHost ? '<span class="player-host-badge">HOST</span>' : ''} ${op.username === OnlineManager.getMyUsername() ? '<span style="color:var(--blue); font-size:10px;">(YOU)</span>' : ''}</div>
+                                            <div style="font-size: 11px; color: var(--gray-400); font-family: Orbitron;">${escapeHTML(op.team?.name || 'Managing AI Team')}</div>
                                         </div>
-                                        <span class="badge" style="background: var(--green); color: black; font-family: Orbitron; font-weight: 900; padding: 4px 10px; font-size: 10px;">
-                                            ${op.isHost ? '👑 HOST READY' : '🏁 READY'}
-                                        </span>
+                                        <div class="player-ready ${op.isReady ? 'is-ready' : ''}">
+                                            ${op.isReady ? '✓' : ''}
+                                        </div>
                                     </div>
                                 `).join('')}
                             </div>
                         </div>
 
+                        <div style="font-family: Rajdhani; font-size: 12px; color: var(--gray-500); text-align: center;">Tip: Click your card above to toggle READY status</div>
+
                         <!-- MATCH STATUS & HOST SETTINGS -->
-                        <div class="room-browser-panel" style="padding: 20px; border-color: var(--green); background: rgba(0,255,65,0.05);">
+                        <div class="room-browser-panel" style="padding: 20px; border-color: var(--green); background: rgba(0,255,65,0.05); margin-top: auto;">
                             <div class="panel-title" style="color: var(--green);">
                                 <span class="panel-title-icon">👑</span>
                                 <span>HOST SETTINGS (${escapeHTML(hostName)})</span>
                             </div>
                             <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; background: rgba(0,0,0,0.5); padding: 12px; border-radius: var(--radius-md); font-size: 14px; text-align: center;">
-                                <div style="color: var(--yellow)"><b>${settings.races}</b> Races</div>
-                                <div style="color: var(--yellow)"><b>${settings.difficulty}</b> AI</div>
-                                <div style="color: var(--yellow)"><b>${settings.speed}s</b> / lap</div>
+                                <div style="color: var(--yellow)"><b>${settings.races}</b> Rounds</div>
+                                <div style="color: var(--yellow)"><b>${settings.difficulty}</b> Grid</div>
+                                <div style="color: var(--yellow)"><b>${settings.speed}X</b> Simulation</div>
                             </div>
-                        </div>
-
-                        <!-- MATCH STATUS HINT -->
-                        <div style="padding: 20px; background: rgba(0,255,65,0.1); border: 1px solid var(--green); border-radius: var(--radius-md); color: var(--green); font-family: Rajdhani; font-size: 15px; font-weight: 700; text-align: center; line-height: 1.5; box-shadow: 0 0 20px rgba(0,255,65,0.2);">
-                            🏁 Distinct Constructor package locked successfully! Connected to Master Lobby. Waiting for Host to launch the season...
                         </div>
                     </div>
 
-                    <!-- RIGHT: LIVE CHAT -->
+                    <!-- COL 2: COMMMS & SYSTEM STATUS -->
                     <div style="display: flex; flex-direction: column; gap: 20px;">
-                        <div class="room-chat" style="flex: 1; min-height: 250px; display: flex; flex-direction: column;">
-                            <div class="room-chat-header" style="background: var(--surface-2);">STAGING CHAT & EMOJIS</div>
-                            <div class="room-chat-messages" id="staging-chat-messages" style="flex: 1; overflow-y: auto;">
-                                ${OnlineManager.getChatMessages().map(m => `<div class="chat-message"><span class="chat-sender" style="color: ${m.color}">${m.sender}:</span><span>${escapeHTML(m.text)}</span></div>`).join('')}
+                        <div class="room-chat" style="flex: 1;">
+                            <div class="room-chat-header">PADDOCK RADIO</div>
+                            <div class="room-chat-messages" id="staging-chat-messages">
+                                ${OnlineManager.getChatMessages().map(m => `<div class="chat-message" style="border-left: 2px solid ${m.color}88;"><span class="chat-sender" style="color: ${m.color}">${m.sender}:</span><span>${escapeHTML(m.text)}</span></div>`).join('')}
                             </div>
                             <div class="room-chat-input">
-                                <input type="text" class="input" style="flex: 1; padding: 12px;" id="staging-chat-input" placeholder="Send message / emojis...">
-                                <button class="btn btn-glow" id="btn-staging-send-chat" style="padding: 0 20px;">💬</button>
+                                <input type="text" class="input" id="staging-chat-input" placeholder="Message paddock...">
+                                <button class="btn btn-glow" id="btn-staging-send-chat">SEND</button>
+                            </div>
+                        </div>
+
+                        <div style="padding: 20px; background: rgba(0,128,255,0.1); border: 1px solid var(--blue); border-radius: var(--radius-md); color: var(--blue); font-family: Rajdhani; font-size: 15px; font-weight: 700; text-align: center; line-height: 1.5; box-shadow: 0 0 20px rgba(0,128,255,0.2);">
+                            🏁 Challenger uplink established. Waiting for Host to release the grid...
+                        </div>
+                    </div>
+
+                    <!-- COL 3: UPLINK MONITOR -->
+                    <div style="display: flex; flex-direction: column; gap: 20px;">
+                        <div class="create-room-panel" style="border-color: var(--blue); text-align: center; padding: 30px;">
+                            <div style="font-size: 40px; margin-bottom: 15px;">📡</div>
+                            <div style="font-family: Orbitron; font-weight: 900; color: var(--blue); margin-bottom: 10px;">UPLINK STATUS</div>
+                            <div style="display: flex; flex-direction: column; gap: 10px; background: rgba(0,0,0,0.4); padding: 15px; border-radius: 8px;">
+                                <div style="display: flex; justify-content: space-between; font-size: 12px; font-family: Orbitron;">
+                                    <span style="color: var(--gray-500);">LATENCY:</span>
+                                    <span style="color: ${latency < 100 ? 'var(--green)' : 'var(--yellow)'};">${latency}ms</span>
+                                </div>
+                                <div style="display: flex; justify-content: space-between; font-size: 12px; font-family: Orbitron;">
+                                    <span style="color: var(--gray-500);">PACKET DROP:</span>
+                                    <span style="color: var(--green);">0%</span>
+                                </div>
+                                <div style="display: flex; justify-content: space-between; font-size: 12px; font-family: Orbitron;">
+                                    <span style="color: var(--gray-500);">ENCRYPTION:</span>
+                                    <span style="color: var(--blue);">P2P-AES</span>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -1022,10 +1608,16 @@ const MultiplayerScreen = (() => {
         if (!container) return;
 
         container.querySelector('#mp-home-btn')?.addEventListener('click', () => {
+            try {
+                if (typeof OnlineManager !== 'undefined') OnlineManager.cleanup(true);
+            } catch (err) { console.error('[Multiplayer] Cleanup Error:', err); }
             if (typeof EventBus !== 'undefined') EventBus.emit('nav:home');
         });
 
         container.querySelector('#btn-back-menu')?.addEventListener('click', () => {
+            try {
+                if (typeof OnlineManager !== 'undefined') OnlineManager.cleanup(true);
+            } catch (err) { console.error('[Multiplayer] Cleanup Error:', err); }
             currentLobbyView = 'menu';
             render();
         });
@@ -1050,12 +1642,22 @@ const MultiplayerScreen = (() => {
             const team = container.querySelector('#hs-team')?.value;
             const d1 = container.querySelector('#hs-driver1')?.value;
             const d2 = container.querySelector('#hs-driver2')?.value;
-            const staff = container.querySelector('#hs-staff')?.value;
-            if (d1 === d2) {
-                Notifications.error('Please select two distinct drivers.');
-                return;
-            }
-            OnlineManager.lockInHost(user, team, d1, d2, staff);
+        const staffTechDirId = container.querySelector('#hs-staff-techdir')?.value;
+        const staffStrategistId = container.querySelector('#hs-staff-strategist')?.value;
+        const staffPitCrewId = container.querySelector('#hs-staff-pitcrew')?.value;
+
+        if (d1 === d2) {
+            Notifications.error('Please select two distinct drivers.');
+            return;
+        }
+
+        const staff = {
+            techDirector: STAFF_DATA.technicalDirectors?.find(s => s.id === staffTechDirId),
+            strategist: STAFF_DATA.chiefStrategists?.find(s => s.id === staffStrategistId),
+            pitCrew: STAFF_DATA.pitCrews?.find(s => s.id === staffPitCrewId)
+        };
+
+        OnlineManager.lockInHost(user, team, d1, d2, staff);
             currentLobbyView = 'host_staging';
             render();
         });
@@ -1079,14 +1681,22 @@ const MultiplayerScreen = (() => {
             const team = container.querySelector('#jsp-team')?.value;
             const d1 = container.querySelector('#jsp-driver1')?.value;
             const d2 = container.querySelector('#jsp-driver2')?.value;
-            const staff = container.querySelector('#jsp-staff')?.value;
+        const staffStrategistId = container.querySelector('#jsp-staff-strategist')?.value;
+        const staffPitCrewId = container.querySelector('#jsp-staff-pitcrew')?.value;
+        const staffTechDirId = container.querySelector('#jsp-staff-techdir')?.value;
 
-            if (d1 === d2) {
-                Notifications.error('Please select two distinct drivers.');
-                return;
-            }
+        if (d1 === d2) {
+            Notifications.error('Please select two distinct drivers.');
+            return;
+        }
 
-            OnlineManager.lockInClient(user, team, d1, d2, staff);
+        const staff = {
+            techDirector: STAFF_DATA.technicalDirectors?.find(s => s.id === staffTechDirId),
+            strategist: STAFF_DATA.chiefStrategists?.find(s => s.id === staffStrategistId),
+            pitCrew: STAFF_DATA.pitCrews?.find(s => s.id === staffPitCrewId)
+        };
+
+        OnlineManager.lockInClient(user, team, d1, d2, staff);
             currentLobbyView = 'join_staging';
             render();
         });
@@ -1108,9 +1718,14 @@ const MultiplayerScreen = (() => {
         });
 
         // Copy Code
-        container.querySelector('#display-room-code')?.addEventListener('click', () => {
+        container.querySelector('#btn-copy-code')?.addEventListener('click', () => {
             navigator.clipboard?.writeText(OnlineManager.getRoomCode());
-            Notifications.success('Room Code copied to clipboard!');
+            Notifications.success('Lobby Code copied to clipboard!');
+        });
+
+        // Toggle Ready Status
+        container.querySelector('#toggle-my-ready')?.addEventListener('click', () => {
+            if (typeof OnlineManager !== 'undefined') OnlineManager.triggerReady();
         });
 
         // Chat Sending
@@ -1131,16 +1746,14 @@ const MultiplayerScreen = (() => {
         if (chatBox) chatBox.scrollTop = chatBox.scrollHeight;
     }
 
-    function escapeHTML(str) {
-        if (!str) return '';
-        const div = document.createElement('div');
-        div.textContent = str;
-        return div.innerHTML;
-    }
-
     function destroy() {
         isActive = false;
     }
 
-    return { init, render, destroy };
+    function setLobbyView(view) {
+        currentLobbyView = view;
+        if (isActive) render();
+    }
+
+    return { init, render, setLobbyView, destroy };
 })();

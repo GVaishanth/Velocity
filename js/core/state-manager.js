@@ -3,7 +3,7 @@
    Central game state with reactive updates
    ============================================ */
 
-const StateManager = (() => {
+window.StateManager = (() => {
     // The master game state object
     let state = {
         // Current mode
@@ -40,6 +40,7 @@ const StateManager = (() => {
         //   totalRounds: 10,
         //   schedule: [...trackIds],
         //   carStats: { aero, power, reliability, tireMgmt, cooling, grip },
+        //   livery: { primary, secondary, accent, pattern, changesThisSeason },
         //   rdPoints: 1250,
         //   upgradeQueue: [],
         //   philosophy: 'BALANCED',
@@ -153,6 +154,14 @@ const StateManager = (() => {
             totalRounds: settings.seasonLength || 10,
             schedule: (mpOptions && mpOptions.masterSchedule) ? mpOptions.masterSchedule : generateSchedule(settings.seasonLength || 10),
             carStats: { ...teamData.baseCarStats },
+            lastUpgradedPart: null,
+            livery: {
+                primary: teamData.color || '#FFFFFF',
+                secondary: '#111111',
+                accent: '#FFFFFF',
+                pattern: 'solid',
+                changesThisSeason: 0
+            },
             rdPoints: 1250,
             upgradeQueue: [],
             philosophy: 'BALANCED',
@@ -163,7 +172,8 @@ const StateManager = (() => {
                 constructorStandings: []
             },
             allTeams: allTeams,
-            raceHistory: []
+            raceHistory: [],
+            isMultiplayer: settings.isMultiplayer || false
         };
 
         // Apply staff bonuses to car stats
@@ -343,6 +353,14 @@ const StateManager = (() => {
      */
     function loadFromSave() {
         const savedState = SaveSystem.loadGameState();
+        
+        // --- MULTIPLAYER GUARD ---
+        // Ensure we are not loading a multiplayer session into the single-player resume path
+        if (savedState && savedState.career?.isMultiplayer) {
+            console.warn('[StateManager] Blocked loading multiplayer session from single-player slot');
+            return false;
+        }
+
         if (savedState) {
             state = { ...state, ...savedState };
             EventBus.emit('state:loaded', state);
@@ -355,6 +373,31 @@ const StateManager = (() => {
      * Save current game
      */
     function saveGame() {
+        // --- MULTIPLAYER GUARD ---
+        // Strictly prevent multiplayer sessions from overwriting the single-player 'gamestate'.
+        if (state.career?.isMultiplayer) {
+            const mpSaveData = {
+                mode: state.mode,
+                profile: state.profile,
+                career: state.career,
+                settings: state.settings,
+                race: state.race
+            };
+            
+            // Persist to session storage so Host can re-broadcast after reload
+            try {
+                const sessionStr = sessionStorage.getItem('velocity_mp_session');
+                if (sessionStr) {
+                    const sessionData = JSON.parse(sessionStr);
+                    sessionData.gameState = mpSaveData;
+                    sessionStorage.setItem('velocity_mp_session', JSON.stringify(sessionData));
+                }
+            } catch(e) {}
+
+            SaveSystem.save('mp_gamestate', mpSaveData);
+            return false; 
+        }
+
         const saveData = {
             mode: state.mode,
             profile: state.profile,
@@ -396,6 +439,9 @@ const StateManager = (() => {
         state.mode = 'MENU';
         state.career = null;
         state.race = null;
+        try {
+            sessionStorage.removeItem('velocity_mp_session');
+        } catch(e) {}
         EventBus.emit('state:reset');
     }
 
@@ -467,6 +513,7 @@ const StateManager = (() => {
         set,
         update,
         initCareer,
+        initChampionshipStandings, // Export this
         loadFromSave,
         saveGame,
         loadProfile,

@@ -7,7 +7,7 @@
    FIXED: Hard clamps prevent impossible values
    ============================================ */
 
-const LapCalculator = (() => {
+window.LapCalculator = (() => {
 
     const SKILL_WEIGHT = 0.75;
     const RANDOM_WEIGHT = 0.25;
@@ -26,12 +26,17 @@ const LapCalculator = (() => {
         let performanceScore = calculatePerformanceScore(driver, carStats);
 
         // Calculate tire impact (clamp to safe range)
-        const tireImpactRaw = TireModel.getLapTimeImpact(tireState, driver, weatherState.current, drivingMode);
+        const tireImpactRaw = TireModel.getLapTimeImpact(tireState);
         const safeTireImpact = Math.max(-2, Math.min(15, tireImpactRaw || 0));
 
         // Apply weather effects
         const weatherEffect = calculateWeatherEffect(weatherState, driver);
         performanceScore *= weatherEffect.performanceMult;
+
+        // Apply track evolution (Rubbering in)
+        if (raceContext.trackGrip) {
+            performanceScore *= raceContext.trackGrip;
+        }
 
         // Apply driving mode
         const modeEffect = calculateModeEffect(drivingMode);
@@ -78,18 +83,23 @@ const LapCalculator = (() => {
             lapTime -= 0.6;
         }
 
-        // Dirty air penalty
+        // Dirty air penalty (Scales with car's aero - higher aero = more sensitive to dirty air)
         if (raceContext.inDirtyAir) {
-            lapTime += 0.3;
+            const aeroSensitivity = (carStats.aerodynamics || 70) / 100;
+            lapTime += (0.2 + (aeroSensitivity * 0.4));
         }
 
+        // --- MULTIPLAYER PACE SYNC ---
+        // Reduce randomness in multiplayer to let Host authority stay in control with less jitter
+        const isMulti = raceContext.isMultiplayerRace;
+        
         // Apply randomness (tighter than before)
-        const randomVariance = (Math.random() - 0.5) * 1.2;
+        const randomVariance = isMulti ? ((Math.random() - 0.5) * 0.2) : ((Math.random() - 0.5) * 1.2);
         lapTime += randomVariance;
 
         // Driver consistency variance
         const consistencyMult = 1 - ((driver.stats.consistency - 50) / 100) * 0.4;
-        const consistencyVariance = (Math.random() - 0.5) * 0.5 * consistencyMult;
+        const consistencyVariance = isMulti ? ((Math.random() - 0.5) * 0.1 * consistencyMult) : ((Math.random() - 0.5) * 0.5 * consistencyMult);
         lapTime += consistencyVariance;
 
         // HARD floor and ceiling — prevents impossible values
@@ -246,6 +256,12 @@ const LapCalculator = (() => {
     function calculateOvertakeChance(attackingCar, defendingCar, track) {
         if (!attackingCar || !defendingCar || !track) return 0;
 
+        // DEFENDER RIVALRY IMPACT: Defenders fight harder against rivals
+        let rivalryMod = 1.0;
+        if (defendingCar.driver && attackingCar.driver && defendingCar.driver.rivalId === attackingCar.driver.id) {
+            rivalryMod = 0.6; // 40% harder to overtake a rival
+        }
+
         const paceGap = attackingCar.lastLapTime
             ? defendingCar.lastLapTime - attackingCar.lastLapTime
             : 0;
@@ -253,7 +269,7 @@ const LapCalculator = (() => {
         let chance = Math.max(0, Math.min(0.4, paceGap * 0.15));
 
         const trackMod = (11 - (track.overtakingDifficulty || 5)) / 10;
-        chance *= trackMod;
+        chance *= trackMod * rivalryMod;
 
         const attackerRC = attackingCar.driver?.stats?.racecraft || 70;
         const defenderRC = defendingCar.driver?.stats?.racecraft || 70;

@@ -4,7 +4,7 @@
    Works alongside GameEngine's dive transitions
    ============================================ */
 
-const Transitions = (() => {
+window.Transitions = (() => {
 
     /**
      * Fade in an element

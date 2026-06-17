@@ -5,7 +5,7 @@
    - Visual pit stop with timing
    ============================================ */
 
-const RaceEngine = (() => {
+window.RaceEngine = (() => {
 
     let raceState = null;
     let isRunning = false;
@@ -18,7 +18,10 @@ const RaceEngine = (() => {
     /* ===== INITIALIZATION ===== */
 
     function initRace(track, allTeams, options = {}) {
+        console.log('[RaceEngine] Initializing race on track:', track?.name);
         const cars = createCarsFromTeams(allTeams, options);
+        console.log(`[RaceEngine] Created ${cars.length} cars`);
+        
         const weatherState = WeatherSystem.createWeatherState(track);
         WeatherSystem.generateForecast(weatherState, track.laps);
 
@@ -52,16 +55,80 @@ const RaceEngine = (() => {
             elapsedTime: 0,
             speed: options.speed || 2,
             playerTeamId: options.playerTeamId,
+            allTeams: allTeams, // Added allTeams reference
             difficulty: difficulty,
             finished: false,
             results: null,
-            lapStartTime: 0
+            lapStartTime: 0,
+            trackGrip: 0.95 // Track starts "green"
         };
 
         raceState.cars.sort((a, b) => a.gridPosition - b.gridPosition);
         updatePositions();
 
+        console.log('[RaceEngine] Race State initialized:', raceState.status);
+
+        // --- APPLY SCENARIO CONFIG (HALL OF GLORY) ---
+        if (options.isScenario && options.scenarioConfig) {
+            applyScenarioConfig(options.scenarioConfig);
+        }
+
         return raceState;
+    }
+
+    function applyScenarioConfig(config) {
+        if (!raceState || !config) return;
+
+        console.log(`[RaceEngine] Applying Scenario: ${config.name}`);
+
+        // 1. Lap & Status
+        raceState.currentLap = config.startLap || 0;
+        raceState.status = config.status || 'GREEN';
+        if (config.status === 'SAFETY_CAR') {
+            raceState.scLapsRemaining = config.scLaps || 2;
+        }
+
+        // 2. Weather Authority
+        if (config.weather && WeatherSystem.WEATHER_STATES[config.weather]) {
+            raceState.weather.current = config.weather;
+            if (typeof WeatherSystem.getInitialWetness === 'function') {
+                raceState.weather.trackWetness = WeatherSystem.getInitialWetness(config.weather);
+            } else {
+                raceState.weather.trackWetness = 50;
+            }
+        }
+
+        // 3. Car Setups
+        raceState.cars.forEach((car) => {
+            // Apply common stint distance
+            car.lapCount = raceState.currentLap;
+
+            if (car.isLocalPlayer && config.playerSetup) {
+                // Apply player-specific handicaps/starts
+                const setup = config.playerSetup;
+                if (setup.compound) car.tireState.compoundId = setup.compound;
+                car.tireState.wearPercent = setup.wearPercent || 0;
+                car.tireState._exactWear = setup.wearPercent || 0;
+                car.overtakeBoostsRemaining = setup.boosts !== undefined ? setup.boosts : 3;
+                car.boostRiskPercent = setup.boostRisk || 15;
+            } else if (config.rivalSetups) {
+                // Find matching rival setup by driver name or index
+                // Since this is a scenario, we assume standard driver sorting for rivals
+                const rivalIdx = raceState.cars.filter(c => !c.isLocalPlayer).indexOf(car);
+                const setup = config.rivalSetups[rivalIdx];
+                
+                if (setup) {
+                    if (setup.compound) car.tireState.compoundId = setup.compound;
+                    car.tireState.wearPercent = setup.wearPercent || 0;
+                    car.tireState._exactWear = setup.wearPercent || 0;
+                    if (setup.gap !== undefined) {
+                        car.totalRaceTime = setup.gap;
+                    }
+                }
+            }
+        });
+
+        updatePositions();
     }
 
     function createCarsFromTeams(allTeams, options = {}) {
@@ -107,6 +174,7 @@ const RaceEngine = (() => {
                     driver: driver,
                     team: team,
                     carStats: team.carStats || team.baseCarStats,
+                    livery: isLocal ? StateManager.get('career.livery') : (team.livery || { primary: team.color }),
                     isPlayer: team.isPlayer || isLocal || isRemote,
                     isLocalPlayer: isLocal,
                     isRemotePlayer: isRemote,
@@ -150,11 +218,16 @@ const RaceEngine = (() => {
                     pitAnimationProgress: 0,    // 0-1 through pit sequence
                     pitAnimationDuration: 0,    // Total time for this pit
                     pitPhase: 'racing',         // racing, entering, stopped, exiting
-
+                    pitLateralOffset: 0,        // Lateral shift for pit lane
+                    
                     overtakeBoostsRemaining: 3,
                     overtakeBoostActive: false,
                     boostRiskPercent: 15,
-                    boostRegenProgress: 0
+                    boostRegenProgress: 0,
+
+                    // RELIABILITY & COOLING
+                    mechanicalWear: 0,
+                    engineTemp: 80 // Normal operating temp in Celsius
                 };
                 cars.push(car);
             });
@@ -187,8 +260,18 @@ const RaceEngine = (() => {
     /* ===== RACE EXECUTION ===== */
 
     function start() {
-        if (!raceState) return;
-        raceState.status = 'GREEN';
+        if (!raceState) {
+            console.error('[RaceEngine] start() failed: raceState is null');
+            return;
+        }
+
+        console.log('[RaceEngine] Starting race...');
+
+        // --- SCENARIO FIX: Don't overwrite if status already set by scenario ---
+        if (raceState.status === 'PRE_RACE' || !raceState.status) {
+            raceState.status = 'GREEN';
+        }
+        
         raceState.startTime = performance.now();
         raceState.lapStartTime = performance.now();
         isRunning = true;
@@ -202,6 +285,7 @@ const RaceEngine = (() => {
             car.status = 'RACING';
         });
 
+        console.log('[RaceEngine] Race started successfully');
         EventBus.emit('race:start', { track: raceState.track, cars: raceState.cars });
     }
 
@@ -218,9 +302,14 @@ const RaceEngine = (() => {
     }
 
     function update(deltaTime) {
-        if (!isRunning || isPaused || !raceState || raceState.finished) return;
+        if (!isRunning || isPaused || !raceState || raceState.finished || raceState.status === 'RED_FLAG') return;
 
-        const scaledDelta = deltaTime * raceState.speed;
+        // --- MULTIPLAYER SYNC: Speed is controlled by Host ---
+        const speed = (raceState.isMultiplayerRace && typeof OnlineManager !== 'undefined') 
+            ? OnlineManager.getSettings().speed 
+            : raceState.speed;
+
+        const scaledDelta = deltaTime * speed;
         accumulator += scaledDelta;
 
         const simStep = 0.1;
@@ -231,6 +320,49 @@ const RaceEngine = (() => {
         }
 
         raceState.elapsedTime += scaledDelta;
+    }
+
+    function updateReliabilityState(car, stepSeconds) {
+        if (!car || car.status !== 'RACING') return;
+
+        // Base cooling capability
+        const coolingStat = car.carStats.cooling || 75;
+        const targetTemp = 80; // Ideal temp
+        let heatGain = 0;
+
+        // Heating factors
+        if (car.drivingMode === 'PUSH') heatGain += 1.5;
+        if (car.overtakeBoostActive) heatGain += 4.0;
+        if (car.inDirtyAir) heatGain += 1.2; // Less airflow
+
+        // Cooling factor (based on cooling stat and air temp/speed)
+        let cooling = (coolingStat / 100) * 1.5;
+        if (car.drivingMode === 'CONSERVE') cooling *= 1.5;
+
+        // Update temp
+        if (heatGain > cooling) {
+            car.engineTemp += (heatGain - cooling) * stepSeconds * 0.5;
+        } else {
+            car.engineTemp = Math.max(targetTemp, car.engineTemp - (cooling - heatGain) * stepSeconds * 0.3);
+        }
+
+        // Mechanical Wear increases over time, accelerated by high temp
+        let wearRate = 0.001; // Base wear
+        if (car.engineTemp > 105) wearRate *= 3;
+        if (car.engineTemp > 120) wearRate *= 10;
+        
+        car.mechanicalWear += wearRate * stepSeconds;
+
+        // Thermal mistake check if overheating
+        if (car.engineTemp > 115 && Math.random() < 0.005 * stepSeconds) {
+            car.pendingTimePenalty = (car.pendingTimePenalty || 0) + 0.5;
+            if (car.isPlayer) {
+                EventBus.emit('ui:notify', {
+                    message: `⚠️ ${car.driver.name}'s engine is overheating (${car.engineTemp.toFixed(1)}°C)! Pushing too hard in dirty air!`,
+                    type: 'warning'
+                });
+            }
+        }
     }
 
     /**
@@ -255,6 +387,9 @@ const RaceEngine = (() => {
 
             car.trackProgress += lapProgress;
             car.currentLapTime += stepSeconds;
+
+            // Update Engine Temperature & Mechanical Wear
+            updateReliabilityState(car, stepSeconds);
 
             // ERS Boost Regen & Risk simulation
             if (car.status === 'RACING') {
@@ -312,11 +447,22 @@ const RaceEngine = (() => {
      */
     function updatePitAnimation(car, stepSeconds) {
         const total = car.pitAnimationDuration;
-        const ENTER_DURATION = total * 0.25;   // 25% - slowing down
-        const STOPPED_DURATION = total * 0.55; // 55% - tires being changed
-        const EXIT_DURATION = total * 0.20;    // 20% - accelerating out
+        const ENTER_DURATION = total * 0.25;
+        const STOPPED_DURATION = total * 0.55;
+        const EXIT_DURATION = total * 0.20;
 
-        // Double Stacking Check: Is another teammate currently occupying our pit box?
+        // --- AUTHENTIC PIT LANE PHYSICS ---
+        const allTeams = raceState.allTeams || [];
+        const teamIdx = allTeams.findIndex(t => t.id === car.team?.id);
+        const PIT_ENTRY = 0.97;
+        const PIT_EXIT = 0.03;
+        const PIT_WINDOW = 0.06; 
+        const MAX_LATERAL_OFFSET = -22; // Pixels shift inward
+        
+        const boxRelative = (teamIdx + 1) / 13; 
+        const targetBoxProgress = (PIT_ENTRY + (PIT_WINDOW * boxRelative)) % 1.0;
+
+        // Double Stacking Check
         const teammateInBox = raceState.cars.find(c =>
             c.id !== car.id &&
             c.team?.id === car.team?.id &&
@@ -324,11 +470,9 @@ const RaceEngine = (() => {
             c.pitPhase === 'stopped'
         );
 
-        // If Car reached the pit box entry but teammate is currently inside getting tires changed:
         if (teammateInBox && car.pitAnimationProgress + stepSeconds >= ENTER_DURATION && car.pitPhase !== 'exiting') {
             car.pitPhase = 'stack_waiting';
             car.status = 'DOUBLE STACKING...';
-            // Time still accumulates while waiting in pit lane
             car.totalRaceTime += stepSeconds;
             return;
         }
@@ -336,39 +480,41 @@ const RaceEngine = (() => {
         car.pitAnimationProgress += stepSeconds;
         const progress = car.pitAnimationProgress;
 
-        // Calculate movement during pit (slower than normal)
-        let movementMultiplier = 0;
-
         if (progress < ENTER_DURATION) {
-            // PHASE 1: Entering pit - decelerating
             car.pitPhase = 'entering';
             const phaseProgress = progress / ENTER_DURATION;
-            movementMultiplier = 1.0 - (phaseProgress * 0.85); // 100% → 15% speed
+            
+            // Lateral transition: 0 to MAX_LATERAL_OFFSET
+            car.pitLateralOffset = phaseProgress * MAX_LATERAL_OFFSET;
+            
+            // Forward movement to box
+            const entryDist = PIT_WINDOW * boxRelative;
+            car.trackProgress = (PIT_ENTRY + (entryDist * phaseProgress)) % 1.0;
         }
         else if (progress < ENTER_DURATION + STOPPED_DURATION) {
-            // PHASE 2: Stopped - tires changing
             car.pitPhase = 'stopped';
-            movementMultiplier = 0; // Not moving
+            car.pitLateralOffset = MAX_LATERAL_OFFSET;
+            car.trackProgress = targetBoxProgress; 
         }
         else if (progress < total) {
-            // PHASE 3: Exiting - accelerating
             car.pitPhase = 'exiting';
             const phaseInto = progress - (ENTER_DURATION + STOPPED_DURATION);
             const phaseProgress = phaseInto / EXIT_DURATION;
-            movementMultiplier = 0.15 + (phaseProgress * 0.85); // 15% → 100% speed
+            
+            // Lateral transition: MAX_LATERAL_OFFSET back to 0
+            car.pitLateralOffset = MAX_LATERAL_OFFSET * (1 - phaseProgress);
+            
+            // Forward movement to track
+            const exitDist = PIT_WINDOW * (1 - boxRelative);
+            car.trackProgress = (targetBoxProgress + (exitDist * phaseProgress)) % 1.0;
         }
         else {
-            // PIT COMPLETE
+            car.trackProgress = PIT_EXIT;
+            car.pitLateralOffset = 0;
             finishPitStop(car);
             return;
         }
 
-        // Advance position slightly (pit lane is short)
-        const referenceLapTime = car.lastLapTime || raceState.track.baseLapTime;
-        const lapProgress = (stepSeconds * movementMultiplier) / referenceLapTime;
-        car.trackProgress += lapProgress * 0.3; // Pit lane is shorter than regular lap
-
-        // Time penalty accumulates during pit
         car.totalRaceTime += stepSeconds;
     }
 
@@ -457,7 +603,9 @@ const RaceEngine = (() => {
             totalLaps: raceState.totalLaps,
             hasSlipstream: car.hasSlipstream,
             hasDRS: car.hasDRS,
-            inDirtyAir: car.inDirtyAir
+            inDirtyAir: car.inDirtyAir,
+            trackGrip: raceState.trackGrip,
+            isMultiplayerRace: raceState.isMultiplayerRace
         };
 
         const lapResult = LapCalculator.calculateLapTime(
@@ -544,7 +692,8 @@ const RaceEngine = (() => {
             car.tireState,
             car.driver,
             raceState.weather.current,
-            car.drivingMode
+            car.drivingMode,
+            raceState.weather.trackTemp || 35
         );
 
         // DRAMATIC TIRE LIFE END CHECK (50% crash, 50% emergency pit without asking)
@@ -938,9 +1087,61 @@ const RaceEngine = (() => {
         updatePositions();
     }
 
+    function triggerRedFlag(reason) {
+        if (!raceState || raceState.status === 'RED_FLAG') return;
+
+        raceState.status = 'RED_FLAG';
+        isRunning = false; // Physics pause
+
+        if (typeof EventBus !== 'undefined') {
+            EventBus.emit('race:red_flag', { reason: reason, lap: raceState.currentLap });
+            EventBus.emit('ui:notify', {
+                message: `🔴 RED FLAG — ${reason.toUpperCase()}`,
+                type: 'danger',
+                duration: 5000
+            });
+        }
+
+        // RED FLAG REPAIR: All cars get engine cooling and minor repairs
+        raceState.cars.forEach(car => {
+            car.engineTemp = 80;
+            if (car.status === 'RACING') {
+                // Free tire change opportunity simulation
+                car.tireState.wearPercent = 0;
+                car.tireState._exactWear = 0;
+            }
+        });
+
+        // Auto-resume after a delay
+        setTimeout(() => {
+            resumeFromRedFlag();
+        }, 6000);
+    }
+
+    function resumeFromRedFlag() {
+        if (!raceState) return;
+        
+        raceState.status = 'SAFETY_CAR'; // Resume behind safety car
+        raceState.scLapsRemaining = 2;
+        isRunning = true;
+        isPaused = false;
+        lastTickTime = performance.now();
+
+        if (typeof EventBus !== 'undefined') {
+            EventBus.emit('race:green_flag', { lap: raceState.currentLap, resumed: true });
+        }
+    }
+
     /* ===== SAFETY CAR ===== */
 
     function checkRaceEvents() {
+        // Red Flag check: If more than 2 cars DNF'd in the same lap or a massive crash happened
+        const dnfsThisLap = raceState.cars.filter(c => c.status === 'DNF' && c.dnfLap === raceState.currentLap).length;
+        if (dnfsThisLap >= 3 && raceState.status === 'GREEN') {
+            triggerRedFlag('Massive pile-up');
+            return;
+        }
+
         if (raceState.status === 'GREEN') {
             const sc = EventSystem.checkSafetyCarTrigger(raceState, raceState.track, raceState.recentEvents);
             if (sc.triggered) {
@@ -972,7 +1173,7 @@ const RaceEngine = (() => {
     }
 
     function triggerSafetyCar(reason, duration = null) {
-        if (raceState.status !== 'GREEN') return;
+        if (raceState.status === 'RED_FLAG') return; // Cannot trigger SC during Red Flag
 
         const scDuration = duration || (3 + Math.floor(Math.random() * 3));
         raceState.status = 'SAFETY_CAR';
@@ -1050,10 +1251,25 @@ const RaceEngine = (() => {
         const leader = raceState.cars[0];
         if (!leader) return;
 
+        // Dynamic Track Evolution: Grip increases as cars complete laps
+        if (raceState.trackGrip < 1.05) {
+            // Very small increase per lap
+            raceState.trackGrip += 0.0015;
+        }
+
         const newLap = Math.min(raceState.totalLaps, leader.lapCount + 1);
         if (newLap !== raceState.currentLap) {
             raceState.currentLap = newLap;
             if (typeof EventBus !== 'undefined') EventBus.emit('race:new_lap', { lap: newLap });
+        }
+
+        // --- MULTIPLAYER AUTHORITY ---
+        // Only Host triggers race finish locally. Clients wait for sync.
+        if (raceState.isMultiplayerRace && typeof OnlineManager !== 'undefined') {
+            if (OnlineManager.isHost() && leader.lapCount >= raceState.totalLaps) {
+                finishRace();
+            }
+            return;
         }
 
         if (leader.lapCount >= raceState.totalLaps) {
@@ -1061,13 +1277,13 @@ const RaceEngine = (() => {
         }
     }
 
-    function finishRace() {
+    function finishRace(authoritativeResults = null) {
         if (!raceState || raceState.finished) return;
         raceState.finished = true;
         raceState.status = 'FINISHED';
         isRunning = false;
 
-        const results = generateResults();
+        const results = authoritativeResults || generateResults();
         raceState.results = results;
 
         const playerCars = raceState.cars.filter(c =>
@@ -1215,6 +1431,14 @@ const RaceEngine = (() => {
     function skipToEnd() {
         if (!raceState || raceState.finished) return;
 
+        // --- MULTIPLAYER: Clients don't simulate locally, they wait for Host authority ---
+        if (raceState.isMultiplayerRace && typeof OnlineManager !== 'undefined' && !OnlineManager.isHost()) {
+            console.log('[RaceEngine] Multiplayer Client: Awaiting Host authoritative skip results...');
+            // Physics stop, wait for RACE_SYNC with finished:true
+            isRunning = false;
+            return;
+        }
+
         const maxIterations = 50000;
         let iterations = 0;
 
@@ -1245,6 +1469,11 @@ const RaceEngine = (() => {
         raceState.recentEvents.push(event);
         if (raceState.recentEvents.length > 10) {
             raceState.recentEvents.shift();
+        }
+
+        // --- MULTIPLAYER BROADCAST ---
+        if (raceState.isMultiplayerRace && typeof OnlineManager !== 'undefined' && OnlineManager.isHost()) {
+            OnlineManager.broadcastAction('RACE_EVENT', { event });
         }
     }
 

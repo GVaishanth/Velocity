@@ -4,7 +4,7 @@
    alerts, custom content
    ============================================ */
 
-const Modals = (() => {
+window.Modals = (() => {
 
     let overlay = null;
     let modalBox = null;

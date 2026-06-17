@@ -3,7 +3,7 @@
    Weather overlays, crash effects, pit stop animations
    ============================================ */
 
-const Effects = (() => {
+window.Effects = (() => {
 
     let ctx = null;
     let canvasWidth = 0;
@@ -13,6 +13,7 @@ const Effects = (() => {
     let rainDrops = [];
     let crashEffects = [];
     let safetyCarFlash = 0;
+    let particleSystems = []; // General purpose particles (smoke, spray)
 
     /**
      * Initialize effects system
@@ -21,6 +22,7 @@ const Effects = (() => {
         rainDrops = [];
         crashEffects = [];
         safetyCarFlash = 0;
+        particleSystems = [];
     }
 
     /**
@@ -39,6 +41,9 @@ const Effects = (() => {
         } else {
             rainDrops = [];
         }
+
+        // Update particle systems (smoke/spray)
+        updateParticleSystems(deltaTime, raceState);
 
         // Update crash effects
         updateCrashEffects(deltaTime);
@@ -66,6 +71,9 @@ const Effects = (() => {
 
         // Crash effects
         renderCrashEffects();
+
+        // General Particle Systems (Smoke, Spray)
+        renderParticleSystems();
 
         // Safety car overlay
         if (raceState.status === 'SAFETY_CAR') {
@@ -129,6 +137,91 @@ const Effects = (() => {
     }
 
     /**
+     * Update dynamic particle systems for cars
+     */
+    function updateParticleSystems(deltaTime, raceState) {
+        if (!raceState.cars) return;
+
+        raceState.cars.forEach(car => {
+            if (car.status !== 'RACING') return;
+
+            const carPos = TrackRenderer.getTrackPosition(car.trackProgress);
+            const weather = raceState.weather?.current;
+
+            // 1. ENGINE SMOKE (Overheating)
+            if (car.engineTemp > 110) {
+                const intensity = (car.engineTemp - 110) / 20;
+                if (Math.random() < intensity * 0.5) {
+                    spawnParticle(carPos.x, carPos.y, {
+                        vx: (Math.random() - 0.5) * 20,
+                        vy: -20 - Math.random() * 30,
+                        life: 0.8 + Math.random() * 0.5,
+                        size: 2 + Math.random() * 4,
+                        color: 'rgba(200, 200, 200, 0.4)',
+                        type: 'smoke'
+                    });
+                }
+            }
+
+            // 2. RAIN SPRAY (Mist behind car)
+            if (weather === 'LIGHT_RAIN' || weather === 'HEAVY_RAIN') {
+                const intensity = weather === 'HEAVY_RAIN' ? 3 : 1;
+                for (let i = 0; i < intensity; i++) {
+                    const tangent = TrackRenderer.getTrackTangent(car.trackProgress);
+                    spawnParticle(carPos.x - tangent.x * 10, carPos.y - tangent.y * 10, {
+                        vx: -tangent.x * 40 + (Math.random() - 0.5) * 30,
+                        vy: -tangent.y * 40 + (Math.random() - 0.5) * 30,
+                        life: 0.3 + Math.random() * 0.4,
+                        size: 3 + Math.random() * 6,
+                        color: 'rgba(255, 255, 255, 0.2)',
+                        type: 'spray'
+                    });
+                }
+            }
+        });
+
+        // Update existing particles
+        particleSystems.forEach(p => {
+            p.x += p.vx * deltaTime;
+            p.y += p.vy * deltaTime;
+            p.age += deltaTime;
+            if (p.type === 'smoke') {
+                p.size += deltaTime * 5; // Smoke expands
+                p.vy -= deltaTime * 10; // Smoke rises
+            }
+        });
+
+        // Remove dead particles
+        particleSystems = particleSystems.filter(p => p.age < p.life);
+    }
+
+    function spawnParticle(x, y, config) {
+        particleSystems.push({
+            x, y,
+            vx: config.vx || 0,
+            vy: config.vy || 0,
+            life: config.life || 1.0,
+            age: 0,
+            size: config.size || 5,
+            color: config.color || '#FFF',
+            type: config.type || 'generic'
+        });
+    }
+
+    function renderParticleSystems() {
+        ctx.save();
+        particleSystems.forEach(p => {
+            const alpha = 1 - (p.age / p.life);
+            ctx.globalAlpha = alpha;
+            ctx.fillStyle = p.color;
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+            ctx.fill();
+        });
+        ctx.restore();
+    }
+
+    /**
      * Render weather color overlay
      */
     function renderWeatherOverlay(weatherState) {
@@ -166,6 +259,23 @@ const Effects = (() => {
             maxAge: 1.5,
             particles: createCrashParticles(x, y)
         });
+    }
+
+    /**
+     * Trigger tire smoke effect
+     */
+    function triggerSmoke(x, y, intensity = 1.0) {
+        const count = Math.floor(10 * intensity);
+        for (let i = 0; i < count; i++) {
+            spawnParticle(x, y, {
+                vx: (Math.random() - 0.5) * 40,
+                vy: (Math.random() - 0.5) * 20 - 10,
+                life: 0.5 + Math.random() * 0.5,
+                size: 4 + Math.random() * 8,
+                color: 'rgba(255, 255, 255, 0.3)',
+                type: 'smoke'
+            });
+        }
     }
 
     /**

@@ -5,7 +5,7 @@
    Challenge Mode, Load Game
    ============================================ */
 
-const SinglePlayerScreen = (() => {
+window.SinglePlayerScreen = (() => {
 
     let container = null;
     let isActive = false;
@@ -25,9 +25,18 @@ const SinglePlayerScreen = (() => {
     function render() {
         if (!container) return;
 
-        const hasSave = SaveSystem.exists('gamestate');
+        // --- ISOLATED SAVE CHECK ---
+        // We only care about single-player saves here.
+        let hasSave = SaveSystem.exists('gamestate');
+        let saveData = hasSave ? SaveSystem.load('gamestate') : null;
+        
+        // If the save file is actually a multiplayer session (legacy bug), ignore it
+        if (saveData && saveData.career?.isMultiplayer) {
+            hasSave = false;
+            saveData = null;
+        }
+
         const saveMeta = hasSave ? SaveSystem.getMeta('gamestate') : null;
-        const saveData = hasSave ? SaveSystem.load('gamestate') : null;
 
         container.innerHTML = `
             <div class="sp-container">

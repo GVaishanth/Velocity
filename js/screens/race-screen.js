@@ -4,10 +4,11 @@
    timing table, track render, player controls
    ============================================ */
 
-const RaceScreen = (() => {
+window.RaceScreen = (() => {
 
     let isActive = false;
     let raceInitialized = false;
+    let resultsProcessed = false;
     let weatherUpdateInterval = null;
     let registeredSubsystems = [];
 
@@ -67,6 +68,24 @@ const RaceScreen = (() => {
             }
         });
 
+        EventBus.on('race:incident', (event) => {
+            const car = RaceEngine.getCar ? RaceEngine.getCar(event.carId) : null;
+            if (car && typeof Effects !== 'undefined' && typeof TrackRenderer !== 'undefined') {
+                const pos = TrackRenderer.getTrackPosition(car.trackProgress);
+                if (event.type === 'crash' || (event.effects && event.effects.dnf)) {
+                    Effects.triggerCrash(pos.x, pos.y);
+                    // Lock console if player car DNFs
+                    if (car.isPlayer && typeof PlayerControls !== 'undefined') {
+                        PlayerControls.refresh();
+                    }
+                } else if (event.message && event.message.includes('lock')) {
+                    Effects.triggerSmoke(pos.x, pos.y, 1.5);
+                } else if (event.message && event.message.includes('spin')) {
+                    Effects.triggerSmoke(pos.x, pos.y, 3.0);
+                }
+            }
+        });
+
         EventBus.on('race:green_flag', () => {
             const status = document.getElementById('race-status-display');
             if (status) {
@@ -77,81 +96,145 @@ const RaceScreen = (() => {
     }
 
     function setupRace() {
-        const raceData = StateManager.get('race');
-        if (!raceData) {
-            Notifications.error('No race data found');
-            EventBus.emit('nav:home');
-            return;
-        }
+        try {
+            console.log('[RaceScreen] Setting up race...');
+            resultsProcessed = false;
+            const raceData = StateManager.get('race');
+            if (!raceData) {
+                Notifications.error('No race data found');
+                EventBus.emit('nav:home');
+                return;
+            }
 
-        // Build the race UI
-        buildRaceUI(raceData);
+            // Build the race UI
+            buildRaceUI(raceData);
 
-        // Initialize race engine
-        const settings = StateManager.get('settings') || {};
-        const speed = raceData.speed || settings.raceSpeed || 2;
+            // Initialize race engine
+            const settings = StateManager.get('settings') || {};
+            const speed = raceData.speed || settings.raceSpeed || 2;
 
-        RaceEngine.initRace(raceData.track, raceData.allTeams, {
-            difficulty: raceData.difficulty || settings.difficulty || 'COMPETITIVE',
-            speed: speed,
-            playerTeamId: raceData.playerTeamId,
-            strategy: raceData.strategy,
-            grid: raceData.grid || (typeof StateManager !== 'undefined' ? StateManager.get('qualiStartingGrid') : null),
-            isScenario: raceData.isScenario,
-            scenarioConfig: raceData.scenarioConfig
-        });
+            RaceEngine.initRace(raceData.track, raceData.allTeams, {
+                difficulty: raceData.difficulty || settings.difficulty || 'COMPETITIVE',
+                speed: speed,
+                playerTeamId: raceData.playerTeamId,
+                strategy: raceData.strategy,
+                grid: raceData.grid || (typeof StateManager !== 'undefined' ? StateManager.get('qualiStartingGrid') : null),
+                isScenario: raceData.isScenario,
+                scenarioConfig: raceData.scenarioConfig
+            });
 
-        // Setup rendering
-        const trackCanvas = document.getElementById('race-track-canvas');
-        if (trackCanvas) {
-            AnimationLoop.start(trackCanvas, raceData.track, RaceEngine.getCars());
-            AnimationLoop.attachListeners();
-        }
+            // --- CRITICAL CHECK: Ensure engine state exists before proceeding ---
+            if (!RaceEngine.getState()) {
+                throw new Error('RaceEngine failed to initialize state');
+            }
 
-        // Initialize UI components
-        const timingPanel = document.getElementById('race-timing-panel');
-        if (timingPanel) {
-            TimingTable.init(timingPanel);
-        }
+            // Setup rendering
+            const trackCanvas = document.getElementById('race-track-canvas');
+            if (trackCanvas) {
+                AnimationLoop.start(trackCanvas, raceData.track, RaceEngine.getCars());
+                AnimationLoop.attachListeners();
+            }
 
-        const bottomBar = document.getElementById('race-bottom-bar');
-        if (bottomBar) {
-            PlayerControls.init(bottomBar);
-        }
+            // Initialize UI components
+            const timingPanel = document.getElementById('race-timing-panel');
+            if (timingPanel) {
+                TimingTable.init(timingPanel);
+            }
 
-        // Register timing table update loop
-        if (typeof GameEngine !== 'undefined') {
-            const timingSub = {
-                update: () => {
-                    if (isActive) {
-                        TimingTable.forceUpdate();
-                        if (typeof PlayerControls !== 'undefined' && PlayerControls.updateTelemetry) {
-                            PlayerControls.updateTelemetry();
+            const bottomBar = document.getElementById('race-bottom-bar');
+            if (bottomBar) {
+                PlayerControls.init(bottomBar);
+            }
+
+            // Register timing table update loop
+            if (typeof GameEngine !== 'undefined') {
+                const timingSub = {
+                    update: () => {
+                        if (isActive) {
+                            TimingTable.forceUpdate();
+                            if (typeof PlayerControls !== 'undefined' && PlayerControls.updateTelemetry) {
+                                PlayerControls.updateTelemetry();
+                            }
+
+                            // --- LIVE SPONSOR TRACKING ---
+                            updateSponsorHUD();
+                            
+                            // Dynamic Engine Audio Modulation based on player's lead car pace
+                            if (typeof AudioManager !== 'undefined') {
+                                const pCars = RaceEngine.getPlayerCars ? RaceEngine.getPlayerCars() : [];
+                                if (pCars.length > 0) {
+                                    // Map driving mode and temp to sound intensity
+                                    let intensity = 0.4;
+                                    if (pCars[0].drivingMode === 'PUSH') intensity = 0.8;
+                                    if (pCars[0].drivingMode === 'CONSERVE') intensity = 0.2;
+                                    if (pCars[0].overtakeBoostActive) intensity = 1.0;
+                                    AudioManager.modulateEngine(intensity);
+                                }
+                            }
                         }
                     }
-                }
-            };
-            GameEngine.registerSubsystem(timingSub);
-            registeredSubsystems.push(timingSub);
+                };
+                GameEngine.registerSubsystem(timingSub);
+                registeredSubsystems.push(timingSub);
+            }
+
+            // Race engine update loop
+            if (typeof GameEngine !== 'undefined') {
+                const engineSub = {
+                    update: (dt) => {
+                        if (isActive) RaceEngine.update(dt);
+                    }
+                };
+                GameEngine.registerSubsystem(engineSub);
+                registeredSubsystems.push(engineSub);
+            }
+
+            raceInitialized = true;
+
+            // Start sequence
+            setTimeout(() => {
+                startRace();
+            }, 300);
+        } catch (err) {
+            console.error('[RaceScreen] setupRace critical error:', err);
+            Notifications.error('Race initialization failed', 'Returning to home screen');
+            setTimeout(() => EventBus.emit('nav:home'), 2000);
+        }
+    }
+
+    function updateSponsorHUD() {
+        const career = StateManager.get('career');
+        if (!career || !career.activeSponsor) return;
+
+        const statusEl = document.getElementById('sponsor-objective-status');
+        if (!statusEl) return;
+
+        const sp = career.activeSponsor;
+        const pCars = RaceEngine.getLocalPlayerCars();
+        const pRes = [...pCars].sort((a, b) => a.position - b.position);
+
+        let met = false;
+        let progressStr = '';
+
+        if (sp.id === 'sp1') { // Double Top-10
+            const inPoints = pRes.filter(c => c.position <= 10 && c.status !== 'DNF').length;
+            met = inPoints >= 2;
+            progressStr = `CARS IN POINTS: ${inPoints}/2`;
+        } else if (sp.id === 'sp2') { // Podium
+            met = pRes.some(c => c.position <= 3 && c.status !== 'DNF');
+            progressStr = met ? 'PODIUM SECURED' : 'CHASING PODIUM';
+        } else if (sp.id === 'sp3') { // Fastest Lap
+            const state = RaceEngine.getState();
+            met = pRes.some(c => c.id === state?.fastestLapDriverId);
+            progressStr = met ? 'FASTEST LAP HELD' : 'PURSUING FL';
+        } else if (sp.id === 'sp4') { // Double Podium
+            const podiums = pRes.filter(c => c.position <= 3 && c.status !== 'DNF').length;
+            met = podiums >= 2;
+            progressStr = `PODIUMS: ${podiums}/2`;
         }
 
-        // Race engine update loop
-        if (typeof GameEngine !== 'undefined') {
-            const engineSub = {
-                update: (dt) => {
-                    if (isActive) RaceEngine.update(dt);
-                }
-            };
-            GameEngine.registerSubsystem(engineSub);
-            registeredSubsystems.push(engineSub);
-        }
-
-        raceInitialized = true;
-
-        // Start sequence
-        setTimeout(() => {
-            startRace();
-        }, 300);
+        statusEl.textContent = progressStr;
+        statusEl.style.color = met ? '#00FF41' : '#FFD700';
     }
 
     function buildRaceUI(raceData) {
@@ -352,6 +435,23 @@ const RaceScreen = (() => {
             });
         }
 
+        // --- SPONSOR LIVE TRACKING ---
+        const tacticalDeck = document.getElementById('race-tactical-deck');
+        if (tacticalDeck && career.activeSponsor) {
+            let sponsorHud = document.getElementById('sponsor-live-hud');
+            if (!sponsorHud) {
+                sponsorHud = document.createElement('div');
+                sponsorHud.id = 'sponsor-live-hud';
+                sponsorHud.style.cssText = 'position: absolute; top: -35px; right: 10px; background: rgba(0,0,0,0.85); border: 1px solid #FFD700; border-radius: 6px; padding: 6px 12px; font-family: Orbitron; font-size: 10px; color: #FFD700; display: flex; align-items: center; gap: 8px; z-index: 100; box-shadow: 0 4px 15px rgba(0,0,0,0.5);';
+                tacticalDeck.parentElement.style.position = 'relative'; // Ensure parent is relative
+                tacticalDeck.appendChild(sponsorHud);
+            }
+            sponsorHud.innerHTML = `
+                <span style="opacity: 0.7;">🎯 ${career.activeSponsor.name}:</span>
+                <span id="sponsor-objective-status" style="font-weight: 900; text-shadow: 0 0 8px #FFD700;">CALCULATING...</span>
+            `;
+        }
+
         // Attach Tactical Deck Navigation delegates
         const deckNavBtns = document.querySelectorAll('#race-tactical-deck .deck-tab-btn');
         deckNavBtns.forEach(btn => {
@@ -495,7 +595,9 @@ const RaceScreen = (() => {
         const info = WeatherSystem.getDisplayInfo(weather);
         weatherEl.innerHTML = `
             <span class="weather-icon">${info.icon}</span>
-            <span>${info.airTemp}°C</span>
+            <span>AIR: ${info.airTemp.toFixed(1)}°C</span>
+            <span style="margin: 0 5px; opacity: 0.3;">|</span>
+            <span>TRACK: ${info.trackTemp.toFixed(1)}°C</span>
         `;
 
         // Update Live Meteorology Radar HUD if present (Proposal 4)
@@ -570,17 +672,32 @@ const RaceScreen = (() => {
         if (typeof TimingTable !== 'undefined') TimingTable.forceUpdate();
         if (typeof PlayerControls !== 'undefined') PlayerControls.refresh();
 
+        console.log('[RaceScreen] Initiating start sequence...');
+
+        let started = false;
+        const forceStart = () => {
+            if (started) return;
+            started = true;
+            console.log('[RaceScreen] Executing RaceEngine.start()');
+            if (typeof RaceEngine !== 'undefined') RaceEngine.start();
+        };
+
         if (typeof Transitions !== 'undefined' && Transitions.raceLightSequence) {
+            // Give sequence 15s to finish, otherwise force start
+            const safetyTimeout = setTimeout(forceStart, 15000);
+            
             Transitions.raceLightSequence(() => {
-                if (typeof RaceEngine !== 'undefined') RaceEngine.start();
+                clearTimeout(safetyTimeout);
+                forceStart();
             });
         } else {
-            if (typeof RaceEngine !== 'undefined') RaceEngine.start();
+            forceStart();
         }
     }
 
     function handleRaceComplete(data) {
-        if (!data || !data.results) return;
+        if (!data || !data.results || resultsProcessed) return;
+        resultsProcessed = true;
 
         try {
             const career = typeof StateManager?.get === 'function' ? StateManager.get('career') : null;
@@ -605,15 +722,30 @@ const RaceScreen = (() => {
         const career = typeof StateManager?.get === 'function' ? StateManager.get('career') : null;
         if (!career || !Array.isArray(results)) return;
 
+        // --- BUG FIX: Check if this specific round has already been recorded ---
+        const currentRoundNum = (career.currentRound || 0) + 1;
+        if (!career.raceHistory) career.raceHistory = [];
+        
+        // --- MULTIPLAYER: Use Host-provided results if available to prevent desync ---
+        const race = StateManager.get('race');
+        if (race && race.isMultiplayerRace && !OnlineManager.isHost()) {
+            console.log('[RaceScreen] Multiplayer Client: Using Host-authoritative results.');
+        }
+
+        if (career.raceHistory.some(h => h.round === currentRoundNum)) {
+            console.warn(`[RaceScreen] Round ${currentRoundNum} already recorded in history. Blocking duplicate increment.`);
+            return;
+        }
+
         const playerResults = results.filter(r => r && r.team && r.team.id === career.team?.id);
         const bestPlayer = [...playerResults].sort((a, b) => (a?.position || 99) - (b?.position || 99))[0];
 
-        if (!career.raceHistory) career.raceHistory = [];
         career.raceHistory.push({
             trackId: career.schedule?.[career.currentRound || 0],
-            round: (career.currentRound || 0) + 1,
+            round: currentRoundNum,
             playerBestPosition: bestPlayer?.position || 99,
-            playerPoints: playerResults.reduce((sum, r) => sum + (r?.points || 0), 0)
+            playerPoints: playerResults.reduce((sum, r) => sum + (r?.points || 0), 0),
+            fullResults: results // Store full results for history dropdown
         });
 
         results.forEach(r => {
@@ -635,7 +767,7 @@ const RaceScreen = (() => {
             }
         });
 
-        const playerPoints = playerResults.reduce((sum, r) => sum + (r?.points || 0), 0);
+        const playerPoints = playerResults.reduce((sum, r) => sum + (r?.points || 0) + (r?.fastestLapBonus || 0), 0);
         career.rdPoints = (career.rdPoints || 0) + 100 + (playerPoints * 10);
         career.budget = Math.max(0, (career.budget || 0) + 500000 + (playerPoints * 100000));
 
@@ -658,7 +790,7 @@ const RaceScreen = (() => {
             }
         }
 
-        career.currentRound = (career.currentRound || 0) + 1;
+        // career.currentRound = (career.currentRound || 0) + 1; // REMOVED: Now handled by ResultsScreen continue button
         StateManager.set('career', career);
         StateManager.saveGame?.();
     }

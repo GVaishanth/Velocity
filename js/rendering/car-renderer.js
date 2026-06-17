@@ -4,7 +4,7 @@
    Updated every frame for fluid animation
    ============================================ */
 
-const CarRenderer = (() => {
+window.CarRenderer = (() => {
 
     let ctx = null;
     let carVisuals = new Map(); // carId -> visual state
@@ -25,7 +25,9 @@ const CarRenderer = (() => {
                 targetY: 0,
                 rotation: 0,
                 size: car.isPlayer ? 8 : 7,
-                color: car.team.color,
+                color: car.livery?.primary || car.team.color,
+                livery: car.livery,
+                isLocal: car.isLocalPlayer,
                 showLabel: car.isPlayer,
                 pulsePhase: Math.random() * Math.PI * 2,
                 trail: []
@@ -133,6 +135,7 @@ const CarRenderer = (() => {
         const size = visual.size;
         const isLeader = car.position === 1;
         const isPlayer = car.isPlayer;
+        const isLocal = visual.isLocal;
         const isPitting = car.isPittingNow;
 
         // PITTING CAR — show in pit lane area
@@ -141,17 +144,29 @@ const CarRenderer = (() => {
             return;
         }
 
-        // Player glow ring
+        // Local Player specific glow (Livery Primary) vs Remote Player (White)
         if (isPlayer) {
             const pulseSize = 4 + Math.sin(visual.pulsePhase) * 2;
             ctx.beginPath();
             ctx.arc(visual.x, visual.y, size + pulseSize, 0, Math.PI * 2);
-            ctx.strokeStyle = '#FFFFFF';
-            ctx.lineWidth = 2;
-            ctx.shadowColor = '#FFFFFF';
-            ctx.shadowBlur = 12;
+            
+            const highlightColor = isLocal ? (visual.color || '#00D4FF') : '#FFFFFF';
+            
+            ctx.strokeStyle = highlightColor;
+            ctx.lineWidth = isLocal ? 3 : 2;
+            ctx.shadowColor = highlightColor;
+            ctx.shadowBlur = isLocal ? 15 : 12;
             ctx.stroke();
             ctx.shadowBlur = 0;
+            
+            // Secondary ring for local
+            if (isLocal) {
+                ctx.beginPath();
+                ctx.arc(visual.x, visual.y, size + pulseSize + 4, 0, Math.PI * 2);
+                ctx.strokeStyle = highlightColor + '44'; // Translucent
+                ctx.lineWidth = 1;
+                ctx.stroke();
+            }
         }
 
         // Leader crown
@@ -220,25 +235,36 @@ const CarRenderer = (() => {
         const size = visual.size;
         const phase = car.pitPhase;
 
-        // Calculate pit lane position (offset above the regular track position)
-        const pitOffsetY = -35;
-        const pitX = visual.x;
-        const pitY = visual.y + pitOffsetY;
+        // --- AUTHENTIC PIT PATH OFFSET ---
+        const trackPos = TrackRenderer.getTrackPosition(car.trackProgress);
+        const tangent = TrackRenderer.getTrackTangent(car.trackProgress);
+        
+        // Use the car's individual dynamic lateral offset
+        const lateralOffset = car.pitLateralOffset || -22; 
+        const normal = { x: -tangent.y, y: tangent.x };
+        
+        const renderX = trackPos.x + normal.x * lateralOffset;
+        const renderY = trackPos.y + normal.y * lateralOffset;
 
         // Background pit box highlight
-        ctx.fillStyle = 'rgba(255, 215, 0, 0.2)';
-        ctx.fillRect(pitX - 18, pitY - 12, 36, 24);
-        ctx.strokeStyle = 'rgba(255, 215, 0, 0.6)';
-        ctx.lineWidth = 1.5;
-        ctx.strokeRect(pitX - 18, pitY - 12, 36, 24);
+        ctx.save();
+        ctx.translate(renderX, renderY);
+        ctx.rotate(Math.atan2(tangent.y, tangent.x));
+        
+        ctx.fillStyle = 'rgba(255, 215, 0, 0.15)';
+        ctx.fillRect(-15, -10, 30, 20);
+        ctx.strokeStyle = car.team?.color || 'rgba(255, 215, 0, 0.6)';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(-15, -10, 30, 20);
+        ctx.restore();
 
-        // Car body (slightly transparent to show it's in pit)
+        // Car body
         ctx.fillStyle = visual.color;
         ctx.shadowColor = visual.color;
         ctx.shadowBlur = 6;
         ctx.globalAlpha = phase === 'stopped' ? 0.9 : 1.0;
         ctx.beginPath();
-        ctx.arc(pitX, pitY, size, 0, Math.PI * 2);
+        ctx.arc(renderX, renderY, size, 0, Math.PI * 2);
         ctx.fill();
         ctx.globalAlpha = 1.0;
         ctx.shadowBlur = 0;
@@ -248,64 +274,62 @@ const CarRenderer = (() => {
         ctx.font = `bold ${size}px "Rajdhani", sans-serif`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillText(`${car.position}`, pitX, pitY + 1);
+        ctx.fillText(`${car.position}`, renderX, renderY + 1);
         ctx.textBaseline = 'alphabetic';
 
         // Phase indicator
         let phaseText = '';
         let phaseColor = '#FFFFFF';
         if (phase === 'entering') {
-            phaseText = '↓ ENTERING';
+            phaseText = '↓ PIT';
             phaseColor = '#FFD700';
         } else if (phase === 'stopped') {
-            // Pulsing tire change indicator
             const pulse = Math.sin(performance.now() * 0.01) * 0.3 + 0.7;
-            phaseText = '🔧 CHANGING';
+            phaseText = '🔧 BOX';
             phaseColor = `rgba(255, 100, 0, ${pulse})`;
 
-            // Show 4 mechanic dots around the car
-            ctx.fillStyle = `rgba(255, 200, 0, ${pulse})`;
-            const positions = [
-                [-12, -8], [12, -8], [-12, 8], [12, 8]
-            ];
-            positions.forEach(pos => {
+            // Mechanics
+            ctx.fillStyle = phaseColor;
+            [[-12, -10], [12, -10], [-12, 10], [12, 10]].forEach(pos => {
                 ctx.beginPath();
-                ctx.arc(pitX + pos[0], pitY + pos[1], 2, 0, Math.PI * 2);
+                ctx.arc(renderX + pos[0], renderY + pos[1], 2, 0, Math.PI * 2);
                 ctx.fill();
             });
         } else if (phase === 'exiting') {
-            phaseText = '↑ EXITING';
+            phaseText = '↑ OUT';
             phaseColor = '#00FF41';
         }
 
         ctx.fillStyle = phaseColor;
         ctx.font = 'bold 8px "Orbitron", sans-serif';
         ctx.textAlign = 'center';
-        ctx.fillText(phaseText, pitX, pitY - size - 6);
+        ctx.fillText(phaseText, renderX, renderY - size - 6);
 
-        // Show driver name if player
-        if (car.isPlayer) {
-            ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
-            ctx.font = 'bold 9px "Rajdhani", sans-serif';
-            ctx.fillText(car.driver.name.toUpperCase(), pitX, pitY + size + 18);
-        }
-
-        // Progress bar showing pit completion
+        // Progress bar
         if (car.pitAnimationDuration > 0) {
-            const progress = car.pitAnimationProgress / car.pitAnimationDuration;
-            const barWidth = 32;
-            const barHeight = 3;
-            const barX = pitX - barWidth / 2;
-            const barY = pitY + size + 4;
-
-            // Background
+            const p = car.pitAnimationProgress / car.pitAnimationDuration;
+            const barWidth = 24;
+            const barHeight = 2;
+            const barX = renderX - barWidth / 2;
+            const barY = renderY + size + 4;
             ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
             ctx.fillRect(barX, barY, barWidth, barHeight);
-
-            // Fill
             ctx.fillStyle = phaseColor;
-            ctx.fillRect(barX, barY, barWidth * progress, barHeight);
+            ctx.fillRect(barX, barY, barWidth * p, barHeight);
         }
+    }
+
+    function renderPittingCarLegacy(car, visual) {
+        // Implementation for older track versions
+        const size = visual.size;
+        const pitOffsetY = -35;
+        const pitX = visual.x;
+        const pitY = visual.y + pitOffsetY;
+        
+        ctx.fillStyle = visual.color;
+        ctx.beginPath();
+        ctx.arc(pitX, pitY, size, 0, Math.PI * 2);
+        ctx.fill();
     }
 
     /**

@@ -58,8 +58,8 @@ const ACHIEVEMENTS_DATA = [
     },
     {
         id: 'first_pole',
-        name: 'Pole Position',
-        description: 'Set the fastest qualifying time',
+        name: 'Saturday King',
+        description: 'Set the fastest qualifying time for the first time',
         category: 'RACE',
         icon: '🥇',
         xpReward: 400,
@@ -105,8 +105,7 @@ const ACHIEVEMENTS_DATA = [
         category: 'SKILL',
         icon: '🚀',
         xpReward: 1500,
-        condition: { type: 'COMEBACK_WIN', startPos: 10 }
-        ,
+        condition: { type: 'COMEBACK_WIN', startPos: 10 },
         hidden: false
     },
     {
@@ -120,162 +119,20 @@ const ACHIEVEMENTS_DATA = [
         hidden: false
     },
     {
-        id: 'safety_car_master',
-        name: 'Chaos Tamer',
-        description: 'Win a race that featured a safety car',
+        id: 'overtake_master',
+        name: 'Surgical Precision',
+        description: 'Make 10 successful overtakes in a single race',
         category: 'SKILL',
-        icon: '🚨',
-        xpReward: 500,
-        condition: { type: 'SC_WIN' },
-        hidden: false
-    },
-    {
-        id: 'tire_whisperer',
-        name: 'Tire Whisperer',
-        description: 'Complete a one-stop race on a high-degradation track',
-        category: 'SKILL',
-        icon: '🛞',
-        xpReward: 600,
-        condition: { type: 'ONE_STOP_HIGH_DEG' },
-        hidden: false
-    },
-    {
-        id: 'perfect_strategy',
-        name: 'Master Tactician',
-        description: 'Win a race without making a single strategic error',
-        category: 'SKILL',
-        icon: '🧠',
+        icon: '⚔️',
         xpReward: 800,
-        condition: { type: 'PERFECT_STRATEGY' },
-        hidden: true
-    },
-
-    // === MILESTONE ACHIEVEMENTS ===
-    {
-        id: 'races_10',
-        name: 'Rookie Season',
-        description: 'Complete 10 races',
-        category: 'MILESTONE',
-        icon: '🔟',
-        xpReward: 200,
-        condition: { type: 'TOTAL_RACES', value: 10 },
-        hidden: false
-    },
-    {
-        id: 'races_50',
-        name: 'Half Century',
-        description: 'Complete 50 races',
-        category: 'MILESTONE',
-        icon: '5️⃣0️⃣',
-        xpReward: 500,
-        condition: { type: 'TOTAL_RACES', value: 50 },
-        hidden: false
-    },
-    {
-        id: 'races_100',
-        name: 'Century Maker',
-        description: 'Complete 100 races',
-        category: 'MILESTONE',
-        icon: '💯',
-        xpReward: 1000,
-        condition: { type: 'TOTAL_RACES', value: 100 },
-        hidden: false
-    },
-    {
-        id: 'races_250',
-        name: 'Iron Driver',
-        description: 'Complete 250 races',
-        category: 'MILESTONE',
-        icon: '🏗️',
-        xpReward: 2500,
-        condition: { type: 'TOTAL_RACES', value: 250 },
-        hidden: false
-    },
-    {
-        id: 'wins_5',
-        name: 'Race Winner',
-        description: 'Win 5 races',
-        category: 'MILESTONE',
-        icon: '🏆',
-        xpReward: 400,
-        condition: { type: 'TOTAL_WINS', value: 5 },
-        hidden: false
-    },
-    {
-        id: 'wins_25',
-        name: 'Established Star',
-        description: 'Win 25 races',
-        category: 'MILESTONE',
-        icon: '⭐',
-        xpReward: 1500,
-        condition: { type: 'TOTAL_WINS', value: 25 },
-        hidden: false
-    },
-    {
-        id: 'wins_50',
-        name: 'Living Legend',
-        description: 'Win 50 races',
-        category: 'MILESTONE',
-        icon: '🌟',
-        xpReward: 3000,
-        condition: { type: 'TOTAL_WINS', value: 50 },
-        hidden: false
-    },
-    {
-        id: 'podiums_25',
-        name: 'Podium Regular',
-        description: 'Score 25 podium finishes',
-        category: 'MILESTONE',
-        icon: '🏅',
-        xpReward: 750,
-        condition: { type: 'TOTAL_PODIUMS', value: 25 },
-        hidden: false
-    },
-    {
-        id: 'podiums_100',
-        name: 'Podium Master',
-        description: 'Score 100 podium finishes',
-        category: 'MILESTONE',
-        icon: '🎖️',
-        xpReward: 2000,
-        condition: { type: 'TOTAL_PODIUMS', value: 100 },
-        hidden: false
-    },
-    {
-        id: 'poles_10',
-        name: 'Pole Master',
-        description: 'Achieve 10 pole positions',
-        category: 'MILESTONE',
-        icon: '⚡',
-        xpReward: 600,
-        condition: { type: 'TOTAL_POLES', value: 10 },
-        hidden: false
-    },
-    {
-        id: 'poles_50',
-        name: 'Saturday Specialist',
-        description: 'Achieve 50 pole positions',
-        category: 'MILESTONE',
-        icon: '💫',
-        xpReward: 2000,
-        condition: { type: 'TOTAL_POLES', value: 50 },
-        hidden: false
-    },
-    {
-        id: 'fastest_laps_25',
-        name: 'Speed Demon',
-        description: 'Set 25 fastest laps',
-        category: 'MILESTONE',
-        icon: '💨',
-        xpReward: 800,
-        condition: { type: 'TOTAL_FASTEST_LAPS', value: 25 },
+        condition: { type: 'OVERTAKE_COUNT', value: 10 },
         hidden: false
     },
 
     // === CHAMPIONSHIP ACHIEVEMENTS ===
     {
         id: 'first_championship',
-        name: 'World Champion',
+        name: 'World Driver Champion',
         description: 'Win your first drivers championship',
         category: 'CHAMPIONSHIP',
         icon: '👑',
@@ -294,38 +151,8 @@ const ACHIEVEMENTS_DATA = [
         hidden: false
     },
     {
-        id: 'back_to_back',
-        name: 'Back-to-Back',
-        description: 'Win two consecutive drivers championships',
-        category: 'CHAMPIONSHIP',
-        icon: '🔁',
-        xpReward: 4000,
-        condition: { type: 'CONSECUTIVE_CHAMPIONSHIPS', value: 2 },
-        hidden: false
-    },
-    {
-        id: 'triple_crown',
-        name: 'Triple Crown',
-        description: 'Win three consecutive drivers championships',
-        category: 'CHAMPIONSHIP',
-        icon: '👑',
-        xpReward: 6000,
-        condition: { type: 'CONSECUTIVE_CHAMPIONSHIPS', value: 3 },
-        hidden: false
-    },
-    {
-        id: 'dynasty',
-        name: 'Dynasty',
-        description: 'Win five drivers championships',
-        category: 'CHAMPIONSHIP',
-        icon: '🏛️',
-        xpReward: 10000,
-        condition: { type: 'CHAMPIONSHIPS', value: 5 },
-        hidden: false
-    },
-    {
         id: 'double_title',
-        name: 'Double Crown',
+        name: 'The Perfect Double',
         description: 'Win both Drivers AND Constructors title in the same season',
         category: 'CHAMPIONSHIP',
         icon: '💎',
@@ -334,147 +161,79 @@ const ACHIEVEMENTS_DATA = [
         hidden: false
     },
 
+    // === MILESTONE ACHIEVEMENTS ===
+    {
+        id: 'races_50',
+        name: 'Veteran Status',
+        description: 'Complete 50 races in your career',
+        category: 'MILESTONE',
+        icon: '5️⃣0️⃣',
+        xpReward: 1000,
+        condition: { type: 'TOTAL_RACES', value: 50 },
+        hidden: false
+    },
+    {
+        id: 'wins_10',
+        name: 'Double Digit Wins',
+        description: 'Achieve 10 race victories',
+        category: 'MILESTONE',
+        icon: '🏆',
+        xpReward: 1200,
+        condition: { type: 'TOTAL_WINS', value: 10 },
+        hidden: false
+    },
+    {
+        id: 'poles_10',
+        name: 'Qualifying Specialist',
+        description: 'Achieve 10 pole positions',
+        category: 'MILESTONE',
+        icon: '⚡',
+        xpReward: 1000,
+        condition: { type: 'TOTAL_POLES', value: 10 },
+        hidden: false
+    },
+
     // === SPECIAL ACHIEVEMENTS ===
     {
-        id: 'underdog',
-        name: 'Underdog Story',
-        description: 'Win a championship with a bottom-half team',
-        category: 'SPECIAL',
-        icon: '🐕',
-        xpReward: 5000,
-        condition: { type: 'UNDERDOG_CHAMPIONSHIP' },
-        hidden: false
-    },
-    {
-        id: 'perfect_season',
-        name: 'Perfect Season',
+        id: 'undefeated',
+        name: 'The Invincible',
         description: 'Win every race in a single season',
         category: 'SPECIAL',
-        icon: '✨',
-        xpReward: 10000,
+        icon: '🔥',
+        xpReward: 15000,
         condition: { type: 'PERFECT_SEASON' },
-        hidden: true
-    },
-    {
-        id: 'iron_will',
-        name: 'Iron Will',
-        description: 'Finish every race in a season',
-        category: 'SPECIAL',
-        icon: '🛡️',
-        xpReward: 1500,
-        condition: { type: 'NO_DNF_SEASON' },
         hidden: false
     },
     {
-        id: 'consistency_king',
-        name: 'Consistency King',
-        description: 'Score points in 10 consecutive races',
+        id: 'budget_master',
+        name: 'Frugal Principal',
+        description: 'End a season with over $150M in the bank',
         category: 'SPECIAL',
-        icon: '📈',
-        xpReward: 1200,
-        condition: { type: 'POINTS_STREAK', value: 10 },
+        icon: '💰',
+        xpReward: 2000,
+        condition: { type: 'BUDGET_MILESTONE', value: 150000000 },
         hidden: false
-    },
-    {
-        id: 'win_streak_3',
-        name: 'Winning Streak',
-        description: 'Win 3 races in a row',
-        category: 'SPECIAL',
-        icon: '🔥',
-        xpReward: 1500,
-        condition: { type: 'WIN_STREAK', value: 3 },
-        hidden: false
-    },
-    {
-        id: 'win_streak_5',
-        name: 'On Fire',
-        description: 'Win 5 races in a row',
-        category: 'SPECIAL',
-        icon: '🌋',
-        xpReward: 3500,
-        condition: { type: 'WIN_STREAK', value: 5 },
-        hidden: false
-    },
-    {
-        id: 'all_tracks',
-        name: 'Globetrotter',
-        description: 'Win at least one race on 15 different tracks',
-        category: 'SPECIAL',
-        icon: '🌍',
-        xpReward: 2500,
-        condition: { type: 'UNIQUE_TRACK_WINS', value: 15 },
-        hidden: false
-    },
-    {
-        id: 'all_teams',
-        name: 'Team Switcher',
-        description: 'Race with 5 different constructors',
-        category: 'SPECIAL',
-        icon: '🔄',
-        xpReward: 1000,
-        condition: { type: 'UNIQUE_TEAMS', value: 5 },
-        hidden: false
-    },
-    {
-        id: 'night_owl',
-        name: 'Night Owl',
-        description: 'Win 5 night races',
-        category: 'SPECIAL',
-        icon: '🌙',
-        xpReward: 1000,
-        condition: { type: 'NIGHT_WINS', value: 5 },
-        hidden: false
-    },
-    {
-        id: 'street_king',
-        name: 'Street King',
-        description: 'Win 5 street circuit races',
-        category: 'SPECIAL',
-        icon: '🏙️',
-        xpReward: 1200,
-        condition: { type: 'STREET_WINS', value: 5 },
-        hidden: false
-    },
-    {
-        id: 'last_to_first',
-        name: 'Phoenix Rising',
-        description: 'Win a race after starting from last on the grid',
-        category: 'SPECIAL',
-        icon: '🔥',
-        xpReward: 3000,
-        condition: { type: 'LAST_TO_FIRST' },
-        hidden: true
     },
 
     // === LEGENDARY ACHIEVEMENTS ===
     {
         id: 'centurion',
-        name: 'Centurion',
+        name: 'The Centurion',
         description: 'Win 100 races in your career',
         category: 'LEGENDARY',
-        icon: '⚔️',
-        xpReward: 15000,
+        icon: '🎖️',
+        xpReward: 25000,
         condition: { type: 'TOTAL_WINS', value: 100 },
         hidden: false
     },
     {
         id: 'immortal',
-        name: 'Immortal',
-        description: 'Win 10 drivers championships',
+        name: 'The Immortal',
+        description: 'Win 10 Drivers Championships',
         category: 'LEGENDARY',
         icon: '⭐',
-        xpReward: 25000,
-        condition: { type: 'CHAMPIONSHIPS', value: 10 },
-        hidden: false
-    },
-    {
-        id: 'velocity_legend',
-        name: 'Velocity Legend',
-        description: 'Achieve the highest player level',
-        category: 'LEGENDARY',
-        icon: '👑',
         xpReward: 50000,
-        condition: { type: 'LEVEL', value: 50 },
+        condition: { type: 'CHAMPIONSHIPS', value: 10 },
         hidden: false
     }
 ];
@@ -492,9 +251,10 @@ function getAchievementById(id) {
  * Get all achievements (sorted by category, then XP)
  */
 function getAllAchievements() {
+    const categoryOrder = ['RACE', 'CHAMPIONSHIP', 'SKILL', 'MILESTONE', 'SPECIAL', 'LEGENDARY'];
     return [...ACHIEVEMENTS_DATA].sort((a, b) => {
         if (a.category !== b.category) {
-            return a.category.localeCompare(b.category);
+            return categoryOrder.indexOf(a.category) - categoryOrder.indexOf(b.category);
         }
         return a.xpReward - b.xpReward;
     });
@@ -511,7 +271,7 @@ function getAchievementsByCategory(category) {
  * Get visible (non-hidden) achievements
  */
 function getVisibleAchievements() {
-    return ACHIEVEMENTS_DATA.filter(a => !a.hidden);
+    return getAllAchievements().filter(a => !a.hidden);
 }
 
 /**

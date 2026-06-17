@@ -4,7 +4,7 @@
    handles undercut/overcut tactics
    ============================================ */
 
-const PitStrategy = (() => {
+window.PitStrategy = (() => {
 
     /**
      * Create a strategy plan for a car at race start

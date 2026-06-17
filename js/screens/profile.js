@@ -4,7 +4,7 @@
    Elite Trophy Showcase, Cybernetic Aptitude Radar, Storage Sync
    ============================================ */
 
-const ProfileScreen = (() => {
+window.ProfileScreen = (() => {
 
     let container = null;
     let isActive = false;
@@ -218,21 +218,24 @@ const ProfileScreen = (() => {
         const unlocked = profile.achievements || [];
         const visibleAchievements = typeof getVisibleAchievements === 'function' ? getVisibleAchievements() : [];
 
-        // Categorize
-        const tiers = {
-            RACE: { title: '🏆 GRAND PRIX RACING EXCELLENCE', items: [] },
-            CAREER: { title: '♛ EXECUTIVE CONSTRUCTOR MILESTONES', items: [] },
-            RD: { title: '🔧 PADDOCK R&D ADMINISTRATION', items: [] }
-        };
+        // Categorize using all available categories from data
+        const tiers = {};
+        Object.entries(ACHIEVEMENT_CATEGORIES).forEach(([key, cat]) => {
+            tiers[key] = { title: `${cat.icon} ${cat.name.toUpperCase()} EXCELLENCE`, items: [] };
+        });
 
         visibleAchievements.forEach(a => {
-            const t = tiers[a.category] || tiers.RACE;
-            t.items.push(a);
+            if (tiers[a.category]) {
+                tiers[a.category].items.push(a);
+            } else {
+                if (!tiers['OTHER']) tiers['OTHER'] = { title: '⭐ OTHER MILESTONES', items: [] };
+                tiers['OTHER'].items.push(a);
+            }
         });
 
         return `
             <div class="trophy-room-showcase">
-                ${Object.entries(tiers).map(([key, tier]) => `
+                ${Object.entries(tiers).filter(([_, t]) => t.items.length > 0).map(([key, tier]) => `
                     <div class="trophy-tier">
                         <div class="trophy-tier-title">
                             <span>${tier.title}</span>
@@ -242,13 +245,13 @@ const ProfileScreen = (() => {
                                 const isUnlocked = unlocked.includes(a.id);
                                 return `
                                     <div class="master-trophy-card ${isUnlocked ? 'unlocked' : 'locked'}"
-                                         title="${escapeHTML(a.description)}"
+                                         title="${escapeHTML(isUnlocked ? a.description : 'Locked Trophy')}"
                                          onclick="ProfileScreen.triggerTrophyCelebration('${isUnlocked}')">
                                         <div class="trophy-hologram-dock">
                                             <span>${isUnlocked ? a.icon : '🔒'}</span>
                                         </div>
                                         <div class="trophy-title">${isUnlocked ? escapeHTML(a.name) : '???'}</div>
-                                        <div class="trophy-desc">${escapeHTML(a.description)}</div>
+                                        <div class="trophy-desc">${isUnlocked ? escapeHTML(a.description) : 'Fulfil the specific Paddock condition to unlock this silverware.'}</div>
                                         <div class="trophy-reward-badge">+${a.xpReward} PRESTIGE XP</div>
                                     </div>
                                 `;

@@ -6,7 +6,7 @@
    - Added 5 new iconic F1 track layouts
    ============================================ */
 
-const TracksBackground = (() => {
+window.TracksBackground = (() => {
 
     let canvas = null;
     let ctx = null;

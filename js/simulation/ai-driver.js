@@ -4,7 +4,7 @@
    Better strategic pit timing
    ============================================ */
 
-const AIDriver = (() => {
+window.AIDriver = (() => {
 
     const DIFFICULTY = {
         CASUAL: {
