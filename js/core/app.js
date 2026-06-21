@@ -313,7 +313,8 @@ const App = (() => {
             if (typeof StateManager !== 'undefined') {
                 StateManager.saveProfile();
                 const career = StateManager.get('career');
-                if (career) {
+                const race = StateManager.get('race');
+                if (career || race) {
                     StateManager.saveGame();
                 }
             }
@@ -322,7 +323,7 @@ const App = (() => {
         // Auto-save every 60 seconds during gameplay
         setInterval(() => {
             const mode = StateManager.get('mode');
-            if (mode === 'CAREER' || mode === 'CAREER_SETUP') {
+            if (mode === 'CAREER' || mode === 'CAREER_SETUP' || mode === 'RACE_WEEKEND' || mode === 'LIVE_RACE' || mode === 'QUICK_RACE') {
                 StateManager.saveGame();
             }
             StateManager.saveProfile();

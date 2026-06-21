@@ -43,13 +43,66 @@ window.RaceWeekendScreen = (() => {
         attachListeners();
     }
 
+    function persistWeekendRecovery() {
+        try {
+            const raw = sessionStorage.getItem('velocity_mp_session');
+            if (!raw) return;
+            const data = JSON.parse(raw);
+            const recovery = getRecoveryState();
+            data.currentScreen = 'race-weekend';
+            data.weekendStage = recovery.currentStage;
+            data.weekendState = recovery;
+            data.updatedAt = Date.now();
+            sessionStorage.setItem('velocity_mp_session', JSON.stringify(data));
+        } catch(e) {}
+    }
+
+    function getRecoveryState() {
+        return {
+            currentStage,
+            strategy: { ...strategy },
+            practiceState: {
+                ...practiceState,
+                interval: null
+            },
+            qualiState: JSON.parse(JSON.stringify(qualiState)),
+            strategyCountdown,
+            countdownPaused,
+            countdownActive: !!countdownInterval
+        };
+    }
+
+    function restoreRecoveryState(state) {
+        if (!state) return;
+        currentStage = state.currentStage || currentStage || 'intro';
+        if (state.strategy) strategy = { ...strategy, ...state.strategy };
+        if (state.practiceState) practiceState = { ...practiceState, ...state.practiceState, interval: null };
+        if (state.qualiState) qualiState = { ...qualiState, ...state.qualiState };
+        if (typeof state.strategyCountdown === 'number') strategyCountdown = state.strategyCountdown;
+        countdownPaused = !!state.countdownPaused;
+        if (countdownInterval) {
+            clearInterval(countdownInterval);
+            countdownInterval = null;
+        }
+        render();
+    }
+
     function setStage(stage) {
         currentStage = stage;
+        persistWeekendRecovery();
         render();
     }
 
     function syncQuali(data) {
-        // ... (existing)
+        if (!data) return;
+        if (data.q1) qualiState.q1Results = data.q1;
+        if (data.q2) qualiState.q2Results = data.q2;
+        if (data.q3) qualiState.q3Results = data.q3;
+        if (data.finalGrid) qualiState.finalGrid = data.finalGrid;
+        if (data.grid && typeof StateManager !== 'undefined') StateManager.set('qualiStartingGrid', data.grid);
+        if (data.session) qualiState.session = data.session;
+        currentStage = data.session === 'DONE' ? 'strategy' : 'qualifying';
+        render();
     }
 
     function syncSession(data) {
@@ -83,6 +136,10 @@ window.RaceWeekendScreen = (() => {
             if (typeof StateManager !== 'undefined') {
                 const career = StateManager.get('career');
                 if (career) {
+                    if (typeof CalendarService !== 'undefined') {
+                        CalendarService.ensureCareerCalendar(career, { seasonLength: career.totalRounds || 10 });
+                        StateManager.set('career', career);
+                    }
                     initPracticeState(career);
                     initQualiState(career);
                 }
@@ -108,11 +165,15 @@ window.RaceWeekendScreen = (() => {
             return;
         }
 
-        const schedule = Safe.getArray(career, 'schedule', []);
-        const round = Safe.getNumber(career, 'currentRound', 0);
-        const trackId = schedule[round] || schedule[0];
-        const track = (typeof getTrackById === 'function' && trackId ? getTrackById(trackId) : null) || 
-                      (typeof TRACKS_DATA !== 'undefined' && TRACKS_DATA?.[0] ? TRACKS_DATA[0] : 
+        if (typeof CalendarService !== 'undefined') {
+            CalendarService.ensureCareerCalendar(career, { seasonLength: career.totalRounds || 10 });
+            StateManager.set('career', career);
+        }
+        const nextRaceInfo = (typeof CalendarService !== 'undefined')
+            ? CalendarService.getNextRace(career)
+            : { track: null };
+        const track = nextRaceInfo.track ||
+                      (typeof TRACKS_DATA !== 'undefined' && TRACKS_DATA?.[0] ? TRACKS_DATA[0] :
                       { id: 't1', name: 'Grand Prix Circuit', country: 'Germany', flag: '🇩🇪', length: 4.5, laps: 57, corners: 14, drsZones: 2, type: 'RACE', tireDegradation: 5, overtakingDifficulty: 5, rainProbability: 10, svgPath: 'M 100 100 L 600 100 L 600 500 L 100 500 Z' });
 
         switch (currentStage) {
@@ -131,6 +192,7 @@ window.RaceWeekendScreen = (() => {
         }
 
         injectWeekendStyles();
+        persistWeekendRecovery();
     }
 
     function renderIntroView(track, career) {
@@ -897,14 +959,9 @@ window.RaceWeekendScreen = (() => {
         // Retrieve our definitive qualifying grid if available
         const customGrid = StateManager.get('qualiStartingGrid');
 
-        StateManager.set('race', {
-            track: track,
-            allTeams: career.allTeams,
-            playerTeamId: career.team.id,
-            difficulty: career.difficulty || 'COMPETITIVE',
-            strategy: strategy,
+        if (typeof RaceInitializer === 'undefined') throw new Error('RaceInitializer unavailable: cannot launch Grand Prix');
+        RaceInitializer.initializeCareerRace(career, track, strategy, {
             grid: customGrid || null,
-            isCareerRace: true,
             isMultiplayerRace: career.isMultiplayer || false
         });
 
@@ -1131,6 +1188,8 @@ window.RaceWeekendScreen = (() => {
         syncQuali,
         syncSession,
         syncCD,
+        getRecoveryState,
+        restoreRecoveryState,
         destroy
     };
 })();

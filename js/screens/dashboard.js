@@ -43,45 +43,28 @@ window.DashboardScreen = (() => {
             team: Safe.ensureObject(career.team)
         };
 
-        // ROBUST schedule handling (fixes "no upcoming races")
-        let scheduleArr = Safe.getArray(safeCareer, 'schedule', []);
-        let roundIdx = Safe.getNumber(safeCareer, 'currentRound', 0);
-
-        // Auto-repair empty/invalid schedule (very common after new career or corrupt load)
-        if (!Array.isArray(scheduleArr) || scheduleArr.length === 0) {
-            if (typeof TRACKS_DATA !== 'undefined' && TRACKS_DATA.length > 0) {
-                const num = Math.max(1, safeCareer.totalRounds || 10);
-                scheduleArr = TRACKS_DATA.slice(0, num).map(t => t.id);
-            } else {
-                scheduleArr = ['bahrain','jeddah','melbourne','suzuka','shanghai','miami','imola','monaco','barcelona','montreal'];
+        // Authoritative calendar handling. Dashboard never generates its own calendar;
+        // invalid calendars are logged and repaired only by CalendarService.
+        if (typeof CalendarService !== 'undefined') {
+            const calendarValidation = CalendarService.validateCareerCalendar(career);
+            if (!calendarValidation.valid) {
+                console.error('[Dashboard] Invalid career calendar detected before render:', calendarValidation.errors, calendarValidation);
             }
-            safeCareer.schedule = scheduleArr;
-
-            // IMPORTANT: Repair the live career object so templates + calendar use it
-            if (career) {
-                career.schedule = scheduleArr;
-                try {
-                    if (typeof StateManager !== 'undefined' && StateManager.set) {
-                        StateManager.set('career', career);
-                    }
-                } catch(e){}
-            }
+            CalendarService.ensureCareerCalendar(career, { seasonLength: career.totalRounds || 10 });
+            safeCareer.schedule = [...career.schedule];
+            safeCareer.seasonCalendar = [...career.seasonCalendar];
+            safeCareer.totalRounds = career.totalRounds;
+            try { StateManager.set('career', career); } catch(e) {}
         }
 
-        roundIdx = Math.max(0, Math.min(roundIdx, Math.max(0, scheduleArr.length - 1)));
-        const nextTrackId = scheduleArr[roundIdx] || scheduleArr[0];
-        let nextTrack = null;
-        if (nextTrackId && typeof getTrackById === 'function') {
-            nextTrack = getTrackById(nextTrackId);
-        }
-        // Final safety: if still no track but we have schedule, force first valid track
-        if (!nextTrack && scheduleArr.length > 0 && typeof getTrackById === 'function') {
-            for (let i = 0; i < scheduleArr.length; i++) {
-                const t = getTrackById(scheduleArr[i]);
-                if (t) { nextTrack = t; break; }
-            }
-        }
-        const isSeasonComplete = Safe.getNumber(safeCareer, 'currentRound', 0) >= Safe.getNumber(safeCareer, 'totalRounds', 1);
+        const nextRaceInfo = (typeof CalendarService !== 'undefined')
+            ? CalendarService.getNextRace(career)
+            : { track: null, trackId: null, remainingRounds: 0, calendar: Safe.getArray(career, 'schedule', []) };
+        const scheduleArr = nextRaceInfo.calendar || Safe.getArray(career, 'schedule', []);
+        const nextTrack = nextRaceInfo.track;
+        const isSeasonComplete = (typeof CalendarService !== 'undefined')
+            ? CalendarService.isSeasonComplete(career)
+            : Safe.getNumber(career, 'currentRound', 0) >= Safe.getNumber(career, 'totalRounds', 1);
 
         const playerDriverStandings = Safe.safeFilter(Safe.getArray(safeCareer.championship, 'driverStandings', []), d => d.teamId === Safe.get(safeCareer, 'team.id'))
             .map(d => ({
@@ -1539,10 +1522,20 @@ window.DashboardScreen = (() => {
             }
         }
 
-        career.schedule = TRACKS_DATA
-            .sort(() => Math.random() - 0.5)
-            .slice(0, career.totalRounds)
-            .map(t => t.id);
+        if (typeof CalendarService !== 'undefined') {
+            CalendarService.generateNextSeason(career, {
+                seasonLength: career.totalRounds || 10,
+                selectedTrackIds: career.selectedTrackIds || career.customCalendar || null,
+                shuffle: !(career.selectedTrackIds || career.customCalendar)
+            });
+        } else {
+            // Last-resort compatibility only; CalendarService is the authoritative path.
+            const nextCalendar = TRACKS_DATA.sort(() => Math.random() - 0.5).slice(0, career.totalRounds).map(t => t.id);
+            career.schedule = [...nextCalendar];
+            career.seasonCalendar = [...nextCalendar];
+            career.totalRounds = nextCalendar.length;
+            career.currentRound = 0;
+        }
         career.raceHistory = [];
         career.championship.driverStandings.forEach(d => {
             d.points = 0; d.wins = 0; d.podiums = 0;

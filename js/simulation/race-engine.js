@@ -15,6 +15,41 @@ window.RaceEngine = (() => {
 
     const MAX_PIT_STOPS = 99;  // Removed pit stop limit completely
 
+    function getTrackLength() {
+        return (raceState?.track && raceState.track.length) || 5.0;
+    }
+
+    function updateCarTotalRaceDistance(car) {
+        if (!car) return 0;
+        const trackLen = getTrackLength();
+        const lap = Number.isFinite(car.lapCount) ? car.lapCount : 0;
+        const progress = Number.isFinite(car.trackProgress) ? car.trackProgress : 0;
+        car.distanceIntoLap = progress * trackLen;
+        car.totalRaceDistance = (lap * trackLen) + car.distanceIntoLap;
+        car.raceProgress = lap + progress;
+        return car.totalRaceDistance;
+    }
+
+    function getAuthoritativeDistance(car) {
+        if (!car) return 0;
+        return updateCarTotalRaceDistance(car);
+    }
+
+    function compareCarsByRaceProgress(a, b) {
+        if (a.status === 'DNF' && b.status !== 'DNF') return 1;
+        if (a.status !== 'DNF' && b.status === 'DNF') return -1;
+
+        const distA = getAuthoritativeDistance(a);
+        const distB = getAuthoritativeDistance(b);
+        if (Math.abs(distB - distA) > 0.00001) return distB - distA;
+
+        const timeA = Number.isFinite(a.totalRaceTime) ? a.totalRaceTime : Number.MAX_SAFE_INTEGER;
+        const timeB = Number.isFinite(b.totalRaceTime) ? b.totalRaceTime : Number.MAX_SAFE_INTEGER;
+        if (Math.abs(timeA - timeB) > 0.0001) return timeA - timeB;
+
+        return (a.gridPosition || 99) - (b.gridPosition || 99);
+    }
+
     /* ===== INITIALIZATION ===== */
 
     function initRace(track, allTeams, options = {}) {
@@ -22,13 +57,16 @@ window.RaceEngine = (() => {
         const cars = createCarsFromTeams(allTeams, options);
         console.log(`[RaceEngine] Created ${cars.length} cars`);
         
-        const weatherState = WeatherSystem.createWeatherState(track);
-        WeatherSystem.generateForecast(weatherState, track.laps);
+        const weatherState = options.weather || WeatherSystem.createWeatherState(track);
+        if (!options.weather && WeatherSystem.generateForecast) WeatherSystem.generateForecast(weatherState, track.laps);
 
         const difficulty = options.difficulty || 'COMPETITIVE';
         AIDriver.initAllAICars(cars, difficulty);
 
-        const grid = options.grid || generateRandomGrid(cars);
+        if (!Array.isArray(options.grid) || options.grid.length === 0) {
+            throw new Error('[RaceEngine] Missing validated grid. Use RaceInitializer.initializeRace().');
+        }
+        const grid = options.grid;
         applyGridPositions(cars, grid);
 
         cars.forEach(car => {
@@ -57,6 +95,9 @@ window.RaceEngine = (() => {
             playerTeamId: options.playerTeamId,
             allTeams: allTeams,
             difficulty: difficulty,
+            isCareerRace: !!options.isCareerRace,
+            isQuickRace: !!options.isQuickRace,
+            isMultiplayerRace: !!options.isMultiplayerRace,
             finished: false,
             results: null,
             lapStartTime: 0,
@@ -85,6 +126,7 @@ window.RaceEngine = (() => {
             car.pitNextLap = false;
             car.forcedPitNextLap = false;
             car.status = 'READY';
+            updateCarTotalRaceDistance(car);
         });
 
         // Sort by grid
@@ -93,92 +135,18 @@ window.RaceEngine = (() => {
 
         console.log('[RaceEngine] Race State initialized:', raceState.status);
 
-        // --- APPLY SCENARIO CONFIG (HALL OF GLORY) ---
-        if (options.isScenario && options.scenarioConfig) {
-            applyScenarioConfig(options.scenarioConfig);
-        }
-
         return raceState;
-    }
-
-    function applyScenarioConfig(config) {
-        if (!raceState || !config) return;
-
-        console.log(`[RaceEngine] Applying Scenario: ${config.name}`);
-
-        // 1. Lap & Status
-        raceState.currentLap = config.startLap || 0;
-        raceState.status = config.status || 'GREEN';
-        if (config.status === 'SAFETY_CAR') {
-            raceState.scLapsRemaining = config.scLaps || 2;
-        }
-
-        // 2. Weather Authority
-        if (config.weather && WeatherSystem.WEATHER_STATES[config.weather]) {
-            raceState.weather.current = config.weather;
-            if (typeof WeatherSystem.getInitialWetness === 'function') {
-                raceState.weather.trackWetness = WeatherSystem.getInitialWetness(config.weather);
-            } else {
-                raceState.weather.trackWetness = 50;
-            }
-        }
-
-        // 3. Car Setups
-        raceState.cars.forEach((car) => {
-            // Apply common stint distance
-            car.lapCount = raceState.currentLap;
-
-            if (car.isLocalPlayer && config.playerSetup) {
-                // Apply player-specific handicaps/starts
-                const setup = config.playerSetup;
-                if (setup.compound) car.tireState.compoundId = setup.compound;
-                car.tireState.wearPercent = setup.wearPercent || 0;
-                car.tireState._exactWear = setup.wearPercent || 0;
-                car.overtakeBoostsRemaining = setup.boosts !== undefined ? setup.boosts : 3;
-                car.boostRiskPercent = setup.boostRisk || 15;
-            } else if (config.rivalSetups) {
-                // Find matching rival setup by driver name or index
-                // Since this is a scenario, we assume standard driver sorting for rivals
-                const rivalIdx = raceState.cars.filter(c => !c.isLocalPlayer).indexOf(car);
-                const setup = config.rivalSetups[rivalIdx];
-                
-                if (setup) {
-                    if (setup.compound) car.tireState.compoundId = setup.compound;
-                    car.tireState.wearPercent = setup.wearPercent || 0;
-                    car.tireState._exactWear = setup.wearPercent || 0;
-                    if (setup.gap !== undefined) {
-                        car.totalRaceTime = setup.gap;
-                    }
-                }
-            }
-        });
-
-        updatePositions();
     }
 
     function createCarsFromTeams(allTeams, options = {}) {
         const cars = [];
         let carId = 0;
 
-        // Indestructible safeguard: If allTeams is missing or invalid, auto-rebuild definitive master teams
+        // RaceEngine no longer creates emergency constructors. All race creation must pass
+        // through RaceInitializer so invalid setup is blocked before physics starts.
         let validTeams = allTeams;
         if (!validTeams || !Array.isArray(validTeams) || validTeams.length === 0) {
-            console.warn('[RaceEngine] allTeams missing or invalid! Rebuilding master teams...');
-            const playerTeam = options.playerTeamId ? (typeof getTeamById === 'function' ? getTeamById(options.playerTeamId) : null) : null;
-            if (typeof StateManager !== 'undefined' && StateManager.generateAllTeams && typeof TEAMS_DATA !== 'undefined' && typeof DRIVERS_DATA !== 'undefined') {
-                const pTeam = playerTeam || TEAMS_DATA[0];
-                const pDrivers = pTeam.drivers || [DRIVERS_DATA[0], DRIVERS_DATA[1]];
-                validTeams = StateManager.generateAllTeams(pTeam, pDrivers);
-            } else if (typeof TEAMS_DATA !== 'undefined' && typeof DRIVERS_DATA !== 'undefined') {
-                validTeams = TEAMS_DATA.map((t, i) => ({
-                    ...t,
-                    isPlayer: options.playerTeamId ? t.id === options.playerTeamId : i === 0,
-                    isLocalPlayer: options.playerTeamId ? t.id === options.playerTeamId : i === 0,
-                    drivers: options.playerTeamId && t.id === options.playerTeamId ? [DRIVERS_DATA[0], DRIVERS_DATA[1]] : [DRIVERS_DATA[(i*2)%DRIVERS_DATA.length], DRIVERS_DATA[(i*2+1)%DRIVERS_DATA.length]]
-                }));
-            } else {
-                validTeams = [];
-            }
+            throw new Error('[RaceEngine] Invalid race setup: allTeams missing. Use RaceInitializer.initializeRace().');
         }
 
         // Master Roster Guarantee: Ensure at least one local constructor team exists
@@ -213,13 +181,11 @@ window.RaceEngine = (() => {
                     currentLapTime: 0,
                     lapCount: 0,
 
-                    // AUTHORITATIVE TOTAL RACE DISTANCE (km)
-                    // totalRaceDistance = (lapCount * track.length) + (trackProgress * track.length)
-                    // This is the ONLY value used for leaderboard position.
+                    // AUTHORITATIVE RACE PROGRESS
+                    // Renderer uses trackProgress for drawing; ranking uses lapCount + trackProgress.
                     totalRaceDistance: 0,
-
-                    // VISUAL ONLY - used exclusively for rendering.
-                    // NEVER used for position, gaps, or ordering.
+                    distanceIntoLap: 0,
+                    raceProgress: 0,
                     trackProgress: 0,
 
                     tireState: TireModel.createTireState(startingCompound),
@@ -258,7 +224,9 @@ window.RaceEngine = (() => {
                     boostRiskPercent: 15,
                     boostRegenProgress: 0,
 
-                    // RELIABILITY & COOLING
+                    // FUEL / RELIABILITY & COOLING
+                    fuel: 100,
+                    fuelLoad: 100,
                     mechanicalWear: 0,
                     engineTemp: 80 // Normal operating temp in Celsius
                 };
@@ -267,16 +235,6 @@ window.RaceEngine = (() => {
         });
 
         return cars;
-    }
-
-    function generateRandomGrid(cars) {
-        const performances = cars.map(car => ({
-            id: car.id,
-            score: LapCalculator.calculatePerformanceScore(car.driver, car.carStats) +
-                   (Math.random() * 20 - 10)
-        }));
-        performances.sort((a, b) => b.score - a.score);
-        return performances.map((p, idx) => ({ carId: p.id, position: idx + 1 }));
     }
 
     function applyGridPositions(cars, grid) {
@@ -309,7 +267,6 @@ window.RaceEngine = (() => {
 
         console.log('[RaceEngine] Starting race...');
 
-        // --- SCENARIO FIX: Don't overwrite if status already set by scenario ---
         if (raceState.status === 'PRE_RACE' || !raceState.status) {
             raceState.status = 'GREEN';
         }
@@ -321,14 +278,23 @@ window.RaceEngine = (() => {
         lastTickTime = performance.now();
         accumulator = 0;
 
-        handleRaceStart();
+        if (!raceState._restoredLiveState) {
+            handleRaceStart();
+        }
 
         raceState.cars.forEach(car => {
-            car.status = 'RACING';
-            // Ensure authoritative distance is set on every start
-            const trackLen = (raceState.track && raceState.track.length) || 5.0;
-            car.totalRaceDistance = (car.lapCount * trackLen) + (car.trackProgress * trackLen);
+            if (!raceState._restoredLiveState && car.status !== 'DNF' && car.status !== 'FINISHED') {
+                car.status = 'RACING';
+            } else if (raceState._restoredLiveState && car.status === 'READY') {
+                car.status = 'RACING';
+            }
+            if (typeof car.fuel !== 'number') car.fuel = 100;
+            if (typeof car.fuelLoad !== 'number') car.fuelLoad = car.fuel;
+            // Ensure authoritative distance is set on every start/restore
+            updateCarTotalRaceDistance(car);
         });
+        raceState.isLiveRaceState = true;
+        raceState._restoredLiveState = false;
 
         console.log('[RaceEngine] Race started successfully');
         EventBus.emit('race:start', { track: raceState.track, cars: raceState.cars });
@@ -432,6 +398,9 @@ window.RaceEngine = (() => {
 
             car.trackProgress += lapProgress;
             car.currentLapTime += stepSeconds;
+            updateCarTotalRaceDistance(car);
+            if (typeof car.fuel !== 'number') car.fuel = 100;
+            car.fuel = Math.max(0, car.fuel - (stepSeconds * 0.012 * (car.drivingMode === 'PUSH' ? 1.25 : car.drivingMode === 'CONSERVE' ? 0.85 : 1)));
 
             // Update Engine Temperature & Mechanical Wear
             updateReliabilityState(car, stepSeconds);
@@ -498,14 +467,18 @@ window.RaceEngine = (() => {
 
         // --- AUTHENTIC PIT LANE PHYSICS ---
         const allTeams = raceState.allTeams || [];
-        const teamIdx = allTeams.findIndex(t => t.id === car.team?.id);
-        const PIT_ENTRY = 0.97;
+        const teamIdxRaw = allTeams.findIndex(t => t.id === car.team?.id);
+        const teamIdx = Math.max(0, teamIdxRaw);
+        // Pit stop is triggered after lap completion in completeLap(); therefore pit-lane
+        // visual/progress must stay near the start of the new lap, not jump to 97%.
+        const PIT_ENTRY = 0.0;
         const PIT_EXIT = 0.03;
-        const PIT_WINDOW = 0.06; 
+        const PIT_WINDOW = PIT_EXIT - PIT_ENTRY;
         const MAX_LATERAL_OFFSET = -22; // Pixels shift inward
         
-        const boxRelative = (teamIdx + 1) / 13; 
-        const targetBoxProgress = (PIT_ENTRY + (PIT_WINDOW * boxRelative)) % 1.0;
+        const teamCount = Math.max(1, allTeams.length || 12);
+        const boxRelative = (teamIdx + 1) / (teamCount + 1);
+        const targetBoxProgress = PIT_ENTRY + (PIT_WINDOW * boxRelative);
 
         // Double Stacking Check
         const teammateInBox = raceState.cars.find(c =>
@@ -519,6 +492,7 @@ window.RaceEngine = (() => {
             car.pitPhase = 'stack_waiting';
             car.status = 'DOUBLE STACKING...';
             car.totalRaceTime += stepSeconds;
+            updateCarTotalRaceDistance(car);
             return;
         }
 
@@ -556,10 +530,12 @@ window.RaceEngine = (() => {
         else {
             car.trackProgress = PIT_EXIT;
             car.pitLateralOffset = 0;
+            updateCarTotalRaceDistance(car);
             finishPitStop(car);
             return;
         }
 
+        updateCarTotalRaceDistance(car);
         car.totalRaceTime += stepSeconds;
     }
 
@@ -643,9 +619,8 @@ window.RaceEngine = (() => {
         car.trackProgress -= 1.0;
         car.lapCount++;
 
-        // CRITICAL: After crossing the line, total distance must increase by full lap length
-        const trackLen = (raceState.track && raceState.track.length) || 5.0;
-        car.totalRaceDistance = (car.lapCount * trackLen) + (car.trackProgress * trackLen);
+        // CRITICAL: authoritative distance is derived from lapCount + trackProgress immediately.
+        updateCarTotalRaceDistance(car);
 
         const raceContext = {
             currentLap: car.lapCount,
@@ -972,54 +947,28 @@ window.RaceEngine = (() => {
     }
 
     /**
-     * DEFINITIVE POSITION CALCULATION (TOTAL RACE DISTANCE MODEL)
+     * DEFINITIVE POSITION CALCULATION (AUTHORITATIVE RACE PROGRESS MODEL)
      *
-     * totalRaceDistance (km) = (lapCount * track.length) + (trackProgress * track.length)
+     * One source of truth for ranking and visual progression:
+     *   raceProgress       = lapCount + trackProgress
+     *   distanceIntoLap    = trackProgress * track.length
+     *   totalRaceDistance  = (lapCount * track.length) + distanceIntoLap
      *
      * Sorting order (highest first):
-     *   1. totalRaceDistance (primary - includes full laps)
+     *   1. totalRaceDistance / raceProgress
      *   2. totalRaceTime     (tie-breaker)
      *   3. gridPosition      (final tie-breaker)
      *
-     * Pit cars are always ranked behind non-pitting cars.
-     * trackProgress is VISUAL ONLY and never influences position.
+     * Renderer and timing tower both consume the same cars array and position fields.
      */
     function updatePositions() {
         if (!raceState) return;
 
+        raceState.cars.forEach(updateCarTotalRaceDistance);
+
         const sortedCars = [...raceState.cars]
             .filter(c => c.status !== 'DNF')
-            .sort((a, b) => {
-                // Pit cars always rank behind non-pitting cars
-                if (a.isPittingNow && !b.isPittingNow) return 1;
-                if (!a.isPittingNow && b.isPittingNow) return -1;
-
-                // AUTHORITATIVE: totalRaceDistance (km)
-                // This is (laps * track.length) + (progress * track.length)
-                const getDist = (car) => {
-                    if (typeof car.totalRaceDistance === 'number' && car.totalRaceDistance >= 0) {
-                        return car.totalRaceDistance;
-                    }
-                    // Fallback (should rarely be needed)
-                    const len = (raceState.track && raceState.track.length) || 5.0;
-                    return (car.lapCount * len) + (car.trackProgress * len);
-                };
-
-                const distA = getDist(a);
-                const distB = getDist(b);
-
-                if (Math.abs(distB - distA) > 0.00001) {
-                    return distB - distA;
-                }
-
-                // Time tie-break (lower time wins)
-                if (Math.abs(a.totalRaceTime - b.totalRaceTime) > 0.0001) {
-                    return a.totalRaceTime - b.totalRaceTime;
-                }
-
-                // Final tie: grid/qualifying (lower = better)
-                return (a.gridPosition || 99) - (b.gridPosition || 99);
-            });
+            .sort(compareCarsByRaceProgress);
 
         const dnfCars = raceState.cars.filter(c => c.status === 'DNF');
 
@@ -1034,12 +983,28 @@ window.RaceEngine = (() => {
         raceState.cars.sort((a, b) => a.position - b.position);
 
 
-        // === LEADER-RELATIVE GAP SYSTEM (distance based) ===
+        // === AUTHORITATIVE GAP SYSTEM (same model as ranking/rendering) ===
         const leader = sortedCars[0];
         if (leader) {
-            sortedCars.forEach(car => {
-                car.gapToLeader = leader.totalRaceDistance - car.totalRaceDistance;
-                car.gapToLeader = Math.max(0, car.gapToLeader);
+            sortedCars.forEach((car, idx) => {
+                const carAhead = idx > 0 ? sortedCars[idx - 1] : null;
+                const leaderDistanceGap = Math.max(0, leader.totalRaceDistance - car.totalRaceDistance);
+                const aheadDistanceGap = carAhead ? Math.max(0, carAhead.totalRaceDistance - car.totalRaceDistance) : 0;
+                const leaderProgress = (leader.lapCount || 0) + (leader.trackProgress || 0);
+                const carProgress = (car.lapCount || 0) + (car.trackProgress || 0);
+                const aheadProgress = carAhead ? (carAhead.lapCount || 0) + (carAhead.trackProgress || 0) : carProgress;
+                const leaderLapDelta = Math.max(0, Math.floor(leaderProgress) - Math.floor(carProgress));
+                const aheadLapDelta = Math.max(0, Math.floor(aheadProgress) - Math.floor(carProgress));
+                const refPaceLeader = car.lastLapTime || leader.lastLapTime || raceState.track.baseLapTime || 90;
+                const refPaceAhead = carAhead ? (car.lastLapTime || carAhead.lastLapTime || raceState.track.baseLapTime || 90) : refPaceLeader;
+
+                car.gapToLeader = leaderDistanceGap;
+                car.gapToLeaderLaps = leaderLapDelta;
+                car.gapToLeaderSeconds = leaderLapDelta > 0 ? null : Math.max(0, (leaderProgress - carProgress) * refPaceLeader);
+                car.gapToAhead = aheadDistanceGap;
+                car.gapToAheadLaps = aheadLapDelta;
+                car.gapToAheadSeconds = carAhead && aheadLapDelta === 0 ? Math.max(0, (aheadProgress - carProgress) * refPaceAhead) : null;
+                car.currentSortRank = idx + 1;
             });
         }
 
@@ -1381,6 +1346,10 @@ window.RaceEngine = (() => {
 
         const results = authoritativeResults || generateResults();
         raceState.results = results;
+        raceState.isLiveRaceState = true;
+        if (typeof StateManager !== 'undefined' && StateManager.set && typeof getSerializableState === 'function') {
+            try { StateManager.set('race', getSerializableState()); } catch(e) {}
+        }
 
         const playerCars = raceState.cars.filter(c =>
             c.team.id === raceState.playerTeamId
@@ -1577,6 +1546,65 @@ window.RaceEngine = (() => {
         return raceState.events.slice(-count).reverse();
     }
 
+    function getSerializableState() {
+        if (!raceState) return null;
+        const snapshot = JSON.parse(JSON.stringify(raceState));
+        snapshot.isLiveRaceState = true;
+        snapshot.savedAt = Date.now();
+        snapshot.paused = isPaused;
+        snapshot.running = isRunning;
+        snapshot.safetyCarState = {
+            deployed: snapshot.status === 'SAFETY_CAR',
+            lapsRemaining: snapshot.scLapsRemaining || 0,
+            duration: snapshot.scDuration || 0,
+            deployedAt: snapshot.scDeployedAt || null
+        };
+        snapshot.cars?.forEach(car => {
+            if (typeof car.fuel !== 'number') car.fuel = 100;
+            if (typeof car.fuelLoad !== 'number') car.fuelLoad = car.fuel;
+            car.driverStatus = car.status;
+            car.pitStatus = {
+                isPittingNow: !!car.isPittingNow,
+                pitPhase: car.pitPhase || 'racing',
+                pitStopCount: car.pitStopCount || 0,
+                pitNextLap: !!car.pitNextLap,
+                forcedPitNextLap: !!car.forcedPitNextLap
+            };
+        });
+        return snapshot;
+    }
+
+    function restoreRace(savedRaceState) {
+        if (!savedRaceState || !savedRaceState.track || !Array.isArray(savedRaceState.cars)) {
+            console.error('[RaceEngine] restoreRace failed: invalid live race state');
+            return null;
+        }
+        raceState = JSON.parse(JSON.stringify(savedRaceState));
+        raceState.isLiveRaceState = true;
+        raceState._restoredLiveState = true;
+        raceState.events = Array.isArray(raceState.events) ? raceState.events : [];
+        raceState.recentEvents = Array.isArray(raceState.recentEvents) ? raceState.recentEvents : raceState.events.slice(-10);
+        raceState.weather = raceState.weather || WeatherSystem.createWeatherState(raceState.track);
+        raceState.cars.forEach(car => {
+            if (typeof car.fuel !== 'number') car.fuel = 100;
+            if (typeof car.fuelLoad !== 'number') car.fuelLoad = car.fuel;
+            if (!car.tireState) car.tireState = TireModel.createTireState('MEDIUM');
+            if (!car.pitPhase) car.pitPhase = car.isPittingNow ? 'entering' : 'racing';
+            if (!Array.isArray(car.lapTimes)) car.lapTimes = [];
+            if (!Array.isArray(car.sectorTimes)) car.sectorTimes = [null, null, null];
+            if (!Array.isArray(car.bestSectorTimes)) car.bestSectorTimes = [null, null, null];
+            updateCarTotalRaceDistance(car);
+        });
+        isRunning = false;
+        isPaused = !!raceState.paused;
+        accumulator = 0;
+        lastTickTime = performance.now();
+        // Do not recalculate positions during restore; the saved order/positions are authoritative.
+        raceState.cars.sort((a, b) => (a.position || 99) - (b.position || 99));
+        EventBus.emit('race:restored', { race: raceState });
+        return raceState;
+    }
+
     /* ===== PUBLIC GETTERS ===== */
 
     function getState() { return raceState; }
@@ -1617,20 +1645,40 @@ window.RaceEngine = (() => {
     }
 
     
-    // === DEFINITIVE DEBUG HELPER (for leaderboard audit) ===
-    function debugRaceState(limit = 8) {
+    // === DEFINITIVE DEBUG HELPER (for leaderboard / visual audit) ===
+    function getPositionDebugData(limit = 99) {
         if (!raceState || !raceState.cars) return [];
-        const trackLen = (raceState.track && raceState.track.length) || 5.0;
-        return raceState.cars.slice(0, limit).map(car => ({
-            name: (car.driver?.name || car.id).padEnd(18),
-            pos: car.position,
-            laps: car.lapCount,
-            intoLap: (car.trackProgress || 0).toFixed(4),
-            totalDist: (car.totalRaceDistance || 0).toFixed(4),
-            time: (car.totalRaceTime || 0).toFixed(3),
-            gap: (car.gapToLeader || 0).toFixed(4),
-            pitting: car.isPittingNow ? "PIT" : ""
-        }));
+        raceState.cars.forEach(updateCarTotalRaceDistance);
+        const sorted = [...raceState.cars].sort(compareCarsByRaceProgress);
+        return sorted.slice(0, limit).map((car, idx) => {
+            let visualTrackPosition = null;
+            try {
+                if (typeof TrackRenderer !== 'undefined' && TrackRenderer.getTrackPosition) {
+                    visualTrackPosition = TrackRenderer.getTrackPosition(car.trackProgress);
+                }
+            } catch(e) {}
+            return {
+                driverName: car.driver?.name || car.id,
+                position: car.position,
+                lapCount: car.lapCount,
+                trackProgress: Number((car.trackProgress || 0).toFixed(5)),
+                distanceIntoLap: Number((car.distanceIntoLap || 0).toFixed(4)),
+                totalRaceDistance: Number((car.totalRaceDistance || 0).toFixed(4)),
+                totalRaceTime: Number((car.totalRaceTime || 0).toFixed(3)),
+                gapToLeader: Number((car.gapToLeader || 0).toFixed(4)),
+                gapToLeaderSeconds: typeof car.gapToLeaderSeconds === 'number' ? Number(car.gapToLeaderSeconds.toFixed(3)) : null,
+                gapToAhead: Number((car.gapToAhead || 0).toFixed(4)),
+                gapToAheadSeconds: typeof car.gapToAheadSeconds === 'number' ? Number(car.gapToAheadSeconds.toFixed(3)) : null,
+                visualTrackPosition,
+                currentSortRank: idx + 1,
+                status: car.status,
+                pitting: !!car.isPittingNow
+            };
+        });
+    }
+
+    function debugRaceState(limit = 8) {
+        return getPositionDebugData(limit);
     }
 
     return {
@@ -1647,8 +1695,11 @@ window.RaceEngine = (() => {
         resume,
         togglePause,
         skipToEnd,
+        finishRace,
 
         getState,
+        getSerializableState,
+        restoreRace,
         getCars,
         getCar,
         getStandings,
@@ -1665,6 +1716,7 @@ window.RaceEngine = (() => {
         isCurrentlyPaused,
 
         destroy,
-        debugRaceState
+        debugRaceState,
+        getPositionDebugData
     };
 })();

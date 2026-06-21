@@ -41,6 +41,119 @@ window.OnlineManager = (() => {
 
     let lastRoomCode = null; // Store for reconnect
 
+    function getSessionId() {
+        try {
+            const existing = sessionStorage.getItem('velocity_mp_session');
+            if (existing) {
+                const parsed = JSON.parse(existing);
+                if (parsed.sessionId) return parsed.sessionId;
+            }
+        } catch(e) {}
+        return 'sess_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
+    }
+
+    function getPlayerId() {
+        try {
+            const existing = sessionStorage.getItem('velocity_mp_session');
+            if (existing) {
+                const parsed = JSON.parse(existing);
+                if (parsed.playerId) return parsed.playerId;
+            }
+        } catch(e) {}
+        return 'player_' + Math.random().toString(36).slice(2, 10);
+    }
+
+    function getCurrentRecoveryPayload() {
+        if (typeof StateManager.captureLiveRaceState === 'function') StateManager.captureLiveRaceState();
+        const currentScreen = typeof StateManager !== 'undefined' ? StateManager.get('currentScreen') : 'multiplayer';
+        const career = typeof StateManager !== 'undefined' ? StateManager.get('career') : null;
+        const race = typeof StateManager !== 'undefined' ? StateManager.get('race') : null;
+        const weekendState = (typeof RaceWeekendScreen !== 'undefined' && RaceWeekendScreen.getRecoveryState)
+            ? RaceWeekendScreen.getRecoveryState()
+            : null;
+        return {
+            roomId: roomCode,
+            roomCode,
+            sessionId: getSessionId(),
+            playerId: getPlayerId(),
+            championshipId: career?.championshipId || career?.id || (career ? `champ_${career.season || 1}_${roomCode || 'local'}` : null),
+            raceId: race?.raceId || (race ? `race_${race.trackId || race.track?.id || 'unknown'}_${career?.currentRound || 0}` : null),
+            currentScreen,
+            weekendStage: weekendState?.currentStage || null,
+            weekendState,
+            raceState: race,
+            readyState: onlinePlayers,
+            gameState: {
+                mode: StateManager.get('mode'),
+                profile: StateManager.get('profile'),
+                career,
+                race,
+                settings: StateManager.get('settings')
+            }
+        };
+    }
+
+    function persistSession(extra = {}) {
+        if (!roomCode && !extra.roomCode && !extra.roomId) return null;
+        try {
+            const existingRaw = sessionStorage.getItem('velocity_mp_session');
+            const existing = existingRaw ? JSON.parse(existingRaw) : {};
+            const recovery = getCurrentRecoveryPayload();
+            if (existing.gameState && !recovery.gameState?.career && !recovery.gameState?.race) {
+                recovery.gameState = existing.gameState;
+                recovery.raceState = existing.raceState || existing.gameState.race;
+            }
+            if (existing.weekendState && !recovery.weekendState) recovery.weekendState = existing.weekendState;
+            if (existing.readyState && (!recovery.readyState || recovery.readyState.length === 0)) recovery.readyState = existing.readyState;
+            const payload = {
+                ...existing,
+                ...recovery,
+                ...extra,
+                roomCode: extra.roomCode || extra.roomId || roomCode || existing.roomCode,
+                roomId: extra.roomId || extra.roomCode || roomCode || existing.roomId,
+                isHost,
+                username: myUsername,
+                updatedAt: Date.now()
+            };
+            sessionStorage.setItem('velocity_mp_session', JSON.stringify(payload));
+            return payload;
+        } catch (e) {
+            console.warn('[OnlineManager] Failed to persist MP session:', e);
+            return null;
+        }
+    }
+
+    function routeToRecoveredSession(payload = {}) {
+        const currentRace = payload.currentRace || payload.raceState || payload.gameState?.race || StateManager.get('race');
+        const weekendState = payload.weekendState || payload.gameState?.weekendState || null;
+        if (weekendState && typeof RaceWeekendScreen !== 'undefined' && RaceWeekendScreen.restoreRecoveryState) {
+            RaceWeekendScreen.restoreRecoveryState(weekendState);
+        }
+        let target = 'dashboard';
+        if (currentRace?.isLiveRaceState && !currentRace.finished) target = 'race';
+        else if (payload.currentScreen === 'race-weekend' || weekendState) target = 'race-weekend';
+        else if (!payload.matchStarted && !payload.fullCareerSync && !payload.gameState?.career) target = isHost ? 'multiplayer' : 'multiplayer';
+        console.log('[OnlineManager] Routing recovered session', { target, roomCode: payload.roomCode || roomCode, weekendStage: weekendState?.currentStage, liveRace: !!currentRace?.isLiveRaceState });
+        if (typeof EventBus !== 'undefined') EventBus.emit('nav:go', { screen: target, color: '#FF0033' });
+        if (target === 'multiplayer' && typeof MultiplayerScreen !== 'undefined') {
+            MultiplayerScreen.setLobbyView(isHost ? 'host_staging' : 'join_staging');
+        }
+    }
+
+    function isReconnectSuppressedForRoom(code) {
+        if (!code) return false;
+        try {
+            const sessionRaw = sessionStorage.getItem('velocity_mp_session');
+            const sessionData = sessionRaw ? JSON.parse(sessionRaw) : null;
+            if (sessionData?.roomCode === code && sessionData?.suppressReconnect) return true;
+            const prefRaw = sessionStorage.getItem('velocity_mp_reconnect_preferences');
+            const prefs = prefRaw ? JSON.parse(prefRaw) : {};
+            return !!prefs?.[code]?.suppressReconnect;
+        } catch(e) {
+            return false;
+        }
+    }
+
     function init() {
         if (!myTeam && typeof TEAMS_DATA !== 'undefined') {
             myTeam = TEAMS_DATA[0];
@@ -75,12 +188,15 @@ window.OnlineManager = (() => {
         const fullId = 'VELOCITY-V1-' + roomCode;
         console.log('[OnlineManager] Creating room:', fullId);
 
-        // Store role but don't overwrite career data yet
-        sessionStorage.setItem('velocity_mp_session', JSON.stringify({
-            roomCode,
-            isHost: true,
-            username: myUsername
-        }));
+        // Store role but preserve any saved gameState/weekendState for true host recovery.
+        // Explicit host creation resets any previous offline preference for this room.
+        try {
+            const rawPrefs = sessionStorage.getItem('velocity_mp_reconnect_preferences');
+            const prefs = rawPrefs ? JSON.parse(rawPrefs) : {};
+            delete prefs[roomCode];
+            sessionStorage.setItem('velocity_mp_reconnect_preferences', JSON.stringify(prefs));
+        } catch(e) {}
+        persistSession({ roomCode, roomId: roomCode, isHost: true, username: myUsername, suppressReconnect: false });
 
         try {
             peer = new Peer(fullId, {
@@ -98,22 +214,36 @@ window.OnlineManager = (() => {
                         const sessionStr = sessionStorage.getItem('velocity_mp_session');
                         const sessionData = sessionStr ? JSON.parse(sessionStr) : null;
                         if (sessionData?.gameState) {
-                            console.log('[OnlineManager] Restoring Game State for Grid...');
-                            StateManager.set('career', sessionData.gameState.career);
-                            StateManager.set('race', sessionData.gameState.race);
-                            onlinePlayers = sessionData.gameState.career.allTeams
-                                .filter(t => t.isPlayer)
-                                .map(t => ({
-                                    username: t.onlineUsername || (t.isLocalPlayer ? myUsername : 'Player'),
-                                    team: t,
-                                    drivers: t.drivers,
-                                    isHost: t.isLocalPlayer,
-                                    connectionId: t.isLocalPlayer ? 'host' : 'unknown',
-                                    isReady: true,
-                                    isReadyForWeekend: true
-                                }));
-                            matchStarted = true;
-                            if (sessionData.gameState.race) startRaceSync();
+                            console.log('[OnlineManager] Restoring Game State for Grid...', { roomCode, currentScreen: sessionData.currentScreen, weekendStage: sessionData.weekendStage });
+                            const restoredCareer = sessionData.gameState.career;
+                            if (restoredCareer && typeof CalendarService !== 'undefined') {
+                                CalendarService.ensureCareerCalendar(restoredCareer, { seasonLength: restoredCareer.totalRounds || matchSettings.races || 5 });
+                            }
+                            if (restoredCareer) StateManager.set('career', restoredCareer);
+                            if (sessionData.gameState.race) StateManager.set('race', sessionData.gameState.race);
+                            if (sessionData.gameState.mode) StateManager.set('mode', sessionData.gameState.mode);
+                            if (sessionData.readyState?.length) {
+                                onlinePlayers = sessionData.readyState.map(p => p.isHost ? { ...p, connectionId: 'host' } : p);
+                            } else if (restoredCareer?.allTeams) {
+                                onlinePlayers = restoredCareer.allTeams
+                                    .filter(t => t.isPlayer)
+                                    .map(t => ({
+                                        username: t.onlineUsername || (t.isLocalPlayer ? myUsername : 'Player'),
+                                        team: t,
+                                        drivers: t.drivers,
+                                        isHost: t.isLocalPlayer,
+                                        connectionId: t.isLocalPlayer ? 'host' : 'unknown',
+                                        isReady: true,
+                                        isReadyForWeekend: true
+                                    }));
+                            }
+                            matchStarted = !!restoredCareer;
+                            if (sessionData.gameState.race?.isLiveRaceState) startRaceSync();
+                            setTimeout(() => routeToRecoveredSession(sessionData), 300);
+                        } else if (sessionData?.readyState?.length) {
+                            onlinePlayers = sessionData.readyState.map(p => p.isHost ? { ...p, connectionId: 'host' } : p);
+                            matchStarted = false;
+                            setTimeout(() => routeToRecoveredSession(sessionData), 300);
                         }
                     } catch(e) { console.error('[OnlineManager] State restore failed', e); }
                 }
@@ -287,18 +417,28 @@ window.OnlineManager = (() => {
                     if (returning) returning.connectionId = conn.peer;
                 }
 
+                const recovery = getCurrentRecoveryPayload();
                 const response = {
                     type: 'LOBBY_UPDATE',
                     onlinePlayers: onlinePlayers,
-                    settings: matchSettings
+                    settings: matchSettings,
+                    roomCode,
+                    roomId: roomCode,
+                    sessionId: recovery.sessionId,
+                    currentScreen: recovery.currentScreen,
+                    weekendStage: recovery.weekendStage,
+                    weekendState: recovery.weekendState,
+                    readyState: onlinePlayers,
+                    matchStarted
                 };
 
                 // If mid-game, send the full career payload to resync the client
-                if (matchStarted) {
+                if (matchStarted || recovery.gameState?.career) {
                     const career = StateManager.get('career');
                     response.fullCareerSync = career;
-                    response.matchStarted = true;
                     response.currentRace = StateManager.get('race');
+                    response.currentStandings = career?.championship || null;
+                    response.currentCalendar = career?.schedule || career?.seasonCalendar || null;
                 }
 
                 conn.send(response);
@@ -371,12 +511,14 @@ window.OnlineManager = (() => {
         Notifications.info('Seeking Host Broker...', `Connecting to Room ${roomCode}`);
         const targetId = 'VELOCITY-V1-' + roomCode;
 
-        // Persist session
-        sessionStorage.setItem('velocity_mp_session', JSON.stringify({
-            roomCode,
-            isHost: false,
-            username: myUsername
-        }));
+        // Persist session. Explicit join resets any previous offline preference for this room.
+        try {
+            const rawPrefs = sessionStorage.getItem('velocity_mp_reconnect_preferences');
+            const prefs = rawPrefs ? JSON.parse(rawPrefs) : {};
+            delete prefs[roomCode];
+            sessionStorage.setItem('velocity_mp_reconnect_preferences', JSON.stringify(prefs));
+        } catch(e) {}
+        persistSession({ roomCode, roomId: roomCode, isHost: false, username: myUsername, suppressReconnect: false });
 
         try {
             peer = new Peer();
@@ -444,16 +586,39 @@ window.OnlineManager = (() => {
                 // --- MID-GAME RECONNECT SYNC ---
                 if (data.fullCareerSync) {
                     console.log('[OnlineManager] Reconnected: Syncing career state from Host');
+                    if (typeof CalendarService !== 'undefined') {
+                        CalendarService.ensureCareerCalendar(data.fullCareerSync, { seasonLength: data.fullCareerSync.totalRounds || matchSettings.races || 5 });
+                    }
                     StateManager.set('career', data.fullCareerSync);
+                }
+                if (data.weekendState && typeof RaceWeekendScreen !== 'undefined' && RaceWeekendScreen.restoreRecoveryState) {
+                    RaceWeekendScreen.restoreRecoveryState(data.weekendState);
                 }
                 if (data.currentRace) {
                     StateManager.set('race', data.currentRace);
                     matchStarted = true;
-                    // If we are on Home or Multiplayer screen, jump back to Dashboard or Race
-                    const curr = StateManager.get('currentScreen');
-                    if (curr === 'home' || curr === 'multiplayer') {
-                        EventBus.emit('nav:go', { screen: 'dashboard', color: '#FF0033' });
+                }
+
+                persistSession({
+                    roomCode: data.roomCode || roomCode,
+                    roomId: data.roomId || data.roomCode || roomCode,
+                    currentScreen: data.currentScreen,
+                    weekendStage: data.weekendStage,
+                    weekendState: data.weekendState,
+                    readyState: data.readyState || data.onlinePlayers,
+                    gameState: {
+                        mode: StateManager.get('mode'),
+                        profile: StateManager.get('profile'),
+                        career: StateManager.get('career'),
+                        race: StateManager.get('race'),
+                        settings: StateManager.get('settings')
                     }
+                });
+
+                // If reconnecting from Home/Multiplayer, return to exact host activity instead of an empty lobby.
+                const curr = StateManager.get('currentScreen');
+                if (data.matchStarted && (curr === 'home' || curr === 'multiplayer')) {
+                    routeToRecoveredSession(data);
                 }
 
                 triggerRender();
@@ -526,10 +691,12 @@ window.OnlineManager = (() => {
 
         conn.on('close', () => {
             const code = roomCode; // Keep local copy before cleanup
-            Notifications.warning('Host Disconnected', 'The master staging room was closed.');
+            const suppressed = isReconnectSuppressedForRoom(code);
+            console.log('[OnlineManager] Host connection closed', { roomCode: code, suppressReconnect: suppressed });
+            if (!suppressed) Notifications.warning('Host Disconnected', 'The master staging room was closed.');
             cleanup();
             if (typeof EventBus !== 'undefined') {
-                EventBus.emit('multiplayer:disconnected', { roomCode: code });
+                if (!suppressed) EventBus.emit('multiplayer:disconnected', { roomCode: code, suppressReconnect: false });
                 EventBus.emit('nav:home');
             }
         });
@@ -797,13 +964,15 @@ window.OnlineManager = (() => {
             return;
         }
 
-        if (typeof StateManager !== 'undefined' && StateManager.randomizeGameData) {
-            StateManager.randomizeGameData();
-        }
+        // Multiplayer must not mutate global TEAMS_DATA / DRIVERS_DATA because those are also
+        // used by Single Player. Use the current roster snapshot as-is for session isolation.
 
-        // Definitive Master Schedule generation — Forces perfect track synchronization using 100% valid universe IDs
-        masterSchedule = typeof TRACKS_DATA !== 'undefined' ? [...TRACKS_DATA].map(t => t.id).sort(() => Math.random() - 0.5).slice(0, matchSettings.races || 5) : ['monaco','silverstone','monza','spa','suzuka'].slice(0, matchSettings.races || 5);
+        // Authoritative multiplayer calendar from the shared CalendarService
+        masterSchedule = (typeof CalendarService !== 'undefined')
+            ? CalendarService.createCalendar({ seasonLength: matchSettings.races || 5, selectedTrackIds: matchSettings.selectedTrackIds || matchSettings.customCalendar, shuffle: !(matchSettings.selectedTrackIds || matchSettings.customCalendar) })
+            : (typeof TRACKS_DATA !== 'undefined' ? [...TRACKS_DATA].map(t => t.id).sort(() => Math.random() - 0.5).slice(0, matchSettings.races || 5) : ['monaco','silverstone','spa','monza','suzuka'].slice(0, matchSettings.races || 5));
         matchStarted = true;
+        persistSession({ championshipId: `champ_${roomCode}_${Date.now()}`, currentScreen: 'dashboard' });
 
         const startPackage = {
             type: 'START_MATCH',
@@ -835,6 +1004,8 @@ window.OnlineManager = (() => {
         syncInterval = setInterval(() => {
             if (typeof RaceEngine === 'undefined' || !RaceEngine.getState()) return;
             const state = RaceEngine.getState();
+            if (typeof StateManager.captureLiveRaceState === 'function') StateManager.captureLiveRaceState();
+            persistSession();
             
             const syncData = {
                 type: 'RACE_SYNC',
@@ -869,15 +1040,20 @@ window.OnlineManager = (() => {
     function handleRemoteStart(data) {
         Notifications.success('Host Unleashed The Season!', 'Synchronizing global championship schedule & grid...');
 
-        if (data.synchronizedTeams && typeof TEAMS_DATA !== 'undefined') {
-            TEAMS_DATA.splice(0, TEAMS_DATA.length, ...data.synchronizedTeams);
-        }
-        if (data.synchronizedDrivers && typeof DRIVERS_DATA !== 'undefined') {
-            DRIVERS_DATA.splice(0, DRIVERS_DATA.length, ...data.synchronizedDrivers);
-        }
+        // Do not splice synchronized multiplayer data into global TEAMS_DATA / DRIVERS_DATA.
+        // Those globals are shared with Single Player; multiplayer roster isolation is carried
+        // by onlinePlayers and the multiplayer career snapshot.
 
         if (data.settings) matchSettings = data.settings;
-        if (data.masterSchedule) masterSchedule = data.masterSchedule;
+        if (data.masterSchedule) {
+            masterSchedule = (typeof CalendarService !== 'undefined')
+                ? CalendarService.normalizeTrackIds(data.masterSchedule)
+                : data.masterSchedule;
+            if (typeof CalendarService !== 'undefined') {
+                const validation = CalendarService.validateCalendar(masterSchedule);
+                if (!validation.valid) console.error('[OnlineManager] Received invalid masterSchedule:', validation.errors, data.masterSchedule);
+            }
+        }
         if (data.onlinePlayers) onlinePlayers = data.onlinePlayers;
 
         const myLocalObj = onlinePlayers.find(op => op.connectionId === myConnection?.peer || op.username === myUsername || op.team?.id === myTeam?.id);
@@ -901,11 +1077,16 @@ window.OnlineManager = (() => {
 
         const career = Safe.get(StateManager, 'get') ? StateManager.get('career') : null;
         if (career && Safe.getArray(career, 'schedule', []).length > 0) {
-            const schedule = Safe.getArray(career, 'schedule', []);
-            const trackId = schedule[0];
-            const track = typeof getTrackById === 'function' ? getTrackById(trackId) : (typeof TRACKS_DATA !== 'undefined' ? TRACKS_DATA[0] : { id: 't1', name: 'Track', laps: 57, baseLapTime: 90 });
+            if (typeof CalendarService !== 'undefined') {
+                CalendarService.ensureCareerCalendar(career, { seasonLength: settings.races || 5 });
+                StateManager.set('career', career);
+            }
+            const nextRace = typeof CalendarService !== 'undefined' ? CalendarService.getNextRace(career) : null;
+            const track = nextRace?.track || (typeof TRACKS_DATA !== 'undefined' ? TRACKS_DATA[0] : { id: 't1', name: 'Track', laps: 57, baseLapTime: 90 });
             
-            StateManager.set('race', {
+            if (typeof RaceInitializer === 'undefined') throw new Error('RaceInitializer unavailable: cannot initialize multiplayer race');
+            RaceInitializer.initializeRace({
+                source: 'multiplayer-career',
                 track: track,
                 allTeams: Safe.getArray(career, 'allTeams', []),
                 playerTeamId: Safe.get(career, 'team.id') || (localTeam && localTeam.id) || null,
@@ -916,6 +1097,8 @@ window.OnlineManager = (() => {
                 isMultiplayerRace: true
             });
         }
+
+        persistSession({ currentScreen: 'dashboard', readyState: onlinePlayers });
 
         if (typeof AudioManager !== 'undefined') AudioManager.engineRev();
         Notifications.success('Online Tournament Active!', `${mpOptions.onlinePlayers?.length || 2} Constructors locked in! Welcome to the Season Paddock Hub.`);
@@ -942,7 +1125,14 @@ window.OnlineManager = (() => {
         if (isManualExit) {
             console.log('[OnlineManager] Manual exit: Clearing MP session storage');
             try {
+                const code = roomCode;
                 sessionStorage.removeItem('velocity_mp_session');
+                if (code) {
+                    const rawPrefs = sessionStorage.getItem('velocity_mp_reconnect_preferences');
+                    const prefs = rawPrefs ? JSON.parse(rawPrefs) : {};
+                    delete prefs[code];
+                    sessionStorage.setItem('velocity_mp_reconnect_preferences', JSON.stringify(prefs));
+                }
             } catch(e) {}
         }
         
@@ -987,10 +1177,13 @@ window.OnlineManager = (() => {
         sendChat,
         sendLiveAction,
         broadcastAction,
+        triggerReady,
         toggleWeekendReady,
         launchDuel,
         updateSettings,
         setUICallback,
+        persistSession,
+        cleanup,
         handleSkipVoteConfirm,
         isHost: () => isHost,
         isConnected,
@@ -1596,6 +1789,14 @@ const MultiplayerScreen = (() => {
         EventBus.on('screen:multiplayer:enter', () => {
             isActive = true;
             currentLobbyView = 'menu';
+            // Runtime isolation: preserve single-player career before entering multiplayer context.
+            const activeCareer = StateManager.get('career');
+            if (activeCareer && !activeCareer.isMultiplayer) {
+                StateManager.saveGame?.();
+                StateManager.set('career', null);
+                StateManager.set('race', null);
+                StateManager.set('mode', 'MENU');
+            }
             OnlineManager.setUICallback(render);
             render();
         });

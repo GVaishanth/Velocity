@@ -615,7 +615,8 @@ window.TeamSetupScreen = (() => {
             const settings = (typeof StateManager !== 'undefined' && StateManager.get) ? (StateManager.get('settings') || {}) : {};
             StateManager.initCareer(selection.team, selection.drivers, selection.staff, {
                 seasonLength: settings.seasonLength || 10,
-                difficulty: settings.difficulty || 'COMPETITIVE'
+                difficulty: settings.difficulty || 'COMPETITIVE',
+                selectedTrackIds: settings.selectedTrackIds || settings.selectedTracks || settings.customCalendar || settings.seasonCalendar
             });
         } catch (e) {
             console.error('[TeamSetup] initCareer failed, using fallback:', e);
@@ -628,12 +629,15 @@ window.TeamSetupScreen = (() => {
                 season: 1,
                 currentRound: 0,
                 totalRounds: 10,
-                schedule: (typeof TRACKS_DATA !== 'undefined' ? TRACKS_DATA.slice(0,10).map(t=>t.id) : []),
+                schedule: (typeof CalendarService !== 'undefined' ? CalendarService.createCalendar({ seasonLength: 10 }) : (typeof TRACKS_DATA !== 'undefined' ? TRACKS_DATA.slice(0,10).map(t=>t.id) : [])),
+                seasonCalendar: [],
                 carStats: selection.team.baseCarStats || {},
                 championship: { driverStandings: [], constructorStandings: [] },
                 allTeams: [],
                 raceHistory: []
             };
+            fallbackCareer.seasonCalendar = [...fallbackCareer.schedule];
+            fallbackCareer.totalRounds = fallbackCareer.schedule.length || fallbackCareer.totalRounds;
             StateManager.set('career', fallbackCareer);
             StateManager.set('mode', 'CAREER');
         }

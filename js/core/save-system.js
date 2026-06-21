@@ -8,6 +8,38 @@ window.SaveSystem = (() => {
     const SAVE_PREFIX = 'velocity_';
     const SAVE_VERSION = 1;
 
+    function stableStringify(value) {
+        const seen = new WeakSet();
+        return JSON.stringify(value, (key, val) => {
+            if (val && typeof val === 'object') {
+                if (seen.has(val)) return '[Circular]';
+                seen.add(val);
+                if (!Array.isArray(val)) {
+                    return Object.keys(val).sort().reduce((acc, k) => {
+                        acc[k] = val[k];
+                        return acc;
+                    }, {});
+                }
+            }
+            return val;
+        });
+    }
+
+    function checksum(data) {
+        const str = stableStringify(data);
+        let hash = 0;
+        for (let i = 0; i < str.length; i++) {
+            hash = ((hash << 5) - hash + str.charCodeAt(i)) | 0;
+        }
+        return String(hash >>> 0);
+    }
+
+    function notifyRecovery(message) {
+        try {
+            if (typeof EventBus !== 'undefined') EventBus.emit('ui:notify', { message, type: 'warning', duration: 6000 });
+        } catch(e) {}
+    }
+
     /**
      * Save data to LocalStorage under a key
      * @param {string} key - Save slot name
@@ -16,15 +48,24 @@ window.SaveSystem = (() => {
      */
     function save(key, data) {
         try {
+            const storageKey = SAVE_PREFIX + key;
+            const existing = localStorage.getItem(storageKey);
+            if (existing) {
+                localStorage.setItem(storageKey + '_backup', existing);
+            }
+
+            // Persist exactly what can be reloaded: remove object identity/shared refs.
+            const serializableData = JSON.parse(JSON.stringify(data));
             const wrapper = {
                 version: SAVE_VERSION,
                 timestamp: Date.now(),
-                data: data
+                key,
+                checksum: checksum(serializableData),
+                data: serializableData
             };
-            localStorage.setItem(
-                SAVE_PREFIX + key,
-                JSON.stringify(wrapper)
-            );
+            const serializedWrapper = JSON.stringify(wrapper);
+            localStorage.setItem(storageKey, serializedWrapper);
+            if (!existing) localStorage.setItem(storageKey + '_backup', serializedWrapper);
             return true;
         } catch (err) {
             console.error('[SaveSystem] Save failed:', err);
@@ -45,8 +86,17 @@ window.SaveSystem = (() => {
      * @returns {*} Saved data or null
      */
     function load(key) {
+        return loadInternal(key, false);
+    }
+
+    function loadBackup(key) {
+        return loadInternal(key, true);
+    }
+
+    function loadInternal(key, backup = false) {
+        const storageKey = SAVE_PREFIX + key + (backup ? '_backup' : '');
         try {
-            const raw = localStorage.getItem(SAVE_PREFIX + key);
+            const raw = localStorage.getItem(storageKey);
             if (!raw) return null;
 
             const wrapper = JSON.parse(raw);
@@ -54,22 +104,77 @@ window.SaveSystem = (() => {
             // Version migration if needed
             if (wrapper.version !== SAVE_VERSION) {
                 console.warn('[SaveSystem] Save version mismatch, attempting migration');
-                return migrateData(wrapper);
+                return validateAndRepairSaveData(key, migrateData(wrapper));
             }
 
             const data = wrapper.data;
-
-            // DEEP CAREER VALIDATION + AUTO-REPAIR (prevents black screens on bad saves)
-            if (key === 'gamestate' && data && data.career) {
-                data.career = validateAndRepairCareer(data.career);
+            if (wrapper.checksum && wrapper.checksum !== checksum(data)) {
+                throw new Error(`Checksum mismatch for ${key}${backup ? ' backup' : ''}`);
             }
 
-            return data;
+            return validateAndRepairSaveData(key, data);
         } catch (err) {
-            console.error('[SaveSystem] Load failed:', err);
+            console.error(`[SaveSystem] Load failed for ${storageKey}:`, err);
+            if (!backup) {
+                const recovered = loadBackup(key);
+                if (recovered) {
+                    notifyRecovery(`Primary save '${key}' was corrupted. Loaded backup.`);
+                    return recovered;
+                }
+            }
             return null;
         }
     }
+
+    function validateAndRepairSaveData(key, data) {
+        if (!data || typeof data !== 'object') return data;
+
+        if ((key === 'gamestate' || key === 'mp_gamestate' || key === 'autosave' || key === 'mp_autosave') && data) {
+            if (data.career) data.career = validateAndRepairCareer(data.career);
+            if (data.race) data.race = validateAndRepairRace(data.race);
+            data.settings = data.settings || {};
+            data.profile = data.profile || null;
+            if (key === 'gamestate' && (data.career?.isMultiplayer || data.race?.isMultiplayerRace)) {
+                console.error('[SaveSystem] Multiplayer data found in single-player save slot. Rejecting load.');
+                return null;
+            }
+            if ((key === 'mp_gamestate' || key === 'mp_autosave') && data.career) {
+                data.career.isMultiplayer = true;
+            }
+        }
+
+        return data;
+    }
+
+    function validateAndRepairRace(race) {
+        if (!race || typeof race !== 'object') return null;
+        const repaired = { ...race };
+        if (repaired.trackId && !repaired.track && typeof CalendarService !== 'undefined') {
+            repaired.track = CalendarService.getTrack(repaired.trackId);
+        }
+        if (repaired.track && !repaired.trackId) repaired.trackId = repaired.track.id;
+        repaired.cars = Array.isArray(repaired.cars) ? repaired.cars : repaired.cars;
+        if (Array.isArray(repaired.cars)) {
+            repaired.cars = repaired.cars.map(c => ({
+                ...c,
+                fuel: typeof c.fuel === 'number' ? c.fuel : 100,
+                fuelLoad: typeof c.fuelLoad === 'number' ? c.fuelLoad : (typeof c.fuel === 'number' ? c.fuel : 100),
+                tireState: c.tireState || (typeof TireModel !== 'undefined' ? TireModel.createTireState('MEDIUM') : null),
+                pitPhase: c.pitPhase || (c.isPittingNow ? 'entering' : 'racing'),
+                pitStopCount: c.pitStopCount || 0,
+                lapCount: c.lapCount || 0,
+                trackProgress: c.trackProgress || 0,
+                totalRaceTime: c.totalRaceTime || 0,
+                totalRaceDistance: c.totalRaceDistance || 0,
+                status: c.status || 'READY'
+            }));
+        }
+        repaired.events = Array.isArray(repaired.events) ? repaired.events : [];
+        repaired.recentEvents = Array.isArray(repaired.recentEvents) ? repaired.recentEvents : repaired.events.slice(-10);
+        repaired.weather = repaired.weather || null;
+        return repaired;
+    }
+
 
     function validateAndRepairCareer(career) {
         if (!career || typeof career !== 'object') return null;
@@ -91,9 +196,13 @@ window.SaveSystem = (() => {
         repaired.raceHistory = Array.isArray(career.raceHistory) ? career.raceHistory : [];
         repaired.isMultiplayer = !!career.isMultiplayer;
 
-        // Ensure schedule is valid track IDs (fallback to first tracks if empty)
-        if (repaired.schedule.length === 0 && typeof TRACKS_DATA !== 'undefined') {
+        // Ensure schedule is valid track IDs using the authoritative CalendarService
+        if (typeof CalendarService !== 'undefined') {
+            CalendarService.ensureCareerCalendar(repaired, { seasonLength: repaired.totalRounds || 10 });
+        } else if (repaired.schedule.length === 0 && typeof TRACKS_DATA !== 'undefined') {
             repaired.schedule = TRACKS_DATA.slice(0, repaired.totalRounds).map(t => t.id);
+            repaired.seasonCalendar = [...repaired.schedule];
+            repaired.totalRounds = repaired.schedule.length;
         }
 
         // Ensure championship standings exist
@@ -145,7 +254,8 @@ window.SaveSystem = (() => {
             return {
                 version: wrapper.version,
                 timestamp: wrapper.timestamp,
-                date: new Date(wrapper.timestamp).toLocaleString()
+                date: new Date(wrapper.timestamp).toLocaleString(),
+                checksum: wrapper.checksum || null
             };
         } catch {
             return null;
@@ -202,8 +312,8 @@ window.SaveSystem = (() => {
     /**
      * Quick auto-save with slot rotation
      */
-    function autoSave(gameState) {
-        save('autosave', gameState);
+    function autoSave(gameState, slot = 'autosave') {
+        return save(slot, gameState);
     }
 
     /**
@@ -274,6 +384,7 @@ window.SaveSystem = (() => {
     return {
         save,
         load,
+        loadBackup,
         exists,
         remove,
         getMeta,
@@ -286,6 +397,9 @@ window.SaveSystem = (() => {
         exportAll,
         importAll,
         clearAll,
+        validateAndRepairSaveData,
+        validateAndRepairCareer,
+        validateAndRepairRace,
         getStorageInfo
     };
 })();

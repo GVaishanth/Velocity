@@ -44,41 +44,17 @@ window.HomeController = (() => {
     function setupUIControls() {
         const musicBtn = document.getElementById('btn-music');
         const settingsBtn = document.getElementById('btn-settings');
-        const brazilBtn = document.getElementById('btn-quick-launch-brazil');
-        const abudhabiBtn = document.getElementById('btn-quick-launch-abudhabi');
-        
         // --- MULTIPLAYER RECONNECT CHECK ---
         try {
             const session = sessionStorage.getItem('velocity_mp_session');
             if (session) {
                 const data = JSON.parse(session);
                 if (data && data.roomCode) {
-                    showReconnectPopup(data); // PASS FULL DATA OBJECT
+                    showReconnectPopup(data, 'home-startup-session');
                 }
             }
-        } catch(e) {}
+        } catch(e) { console.warn('[HomeController] Reconnect session check failed:', e); }
 
-        if (brazilBtn) {
-            brazilBtn.addEventListener('click', (e) => {
-                e.stopPropagation();
-                if (typeof AudioManager !== 'undefined') AudioManager.uiClick?.();
-                if (typeof TireWheel !== 'undefined') TireWheel.pause?.();
-                if (typeof SinglePlayerScreen !== 'undefined' && typeof SinglePlayerScreen.launchScenario === 'function') {
-                    SinglePlayerScreen.launchScenario('miracle_of_brazil');
-                }
-            });
-        }
-
-        if (abudhabiBtn) {
-            abudhabiBtn.addEventListener('click', (e) => {
-                e.stopPropagation();
-                if (typeof AudioManager !== 'undefined') AudioManager.uiClick?.();
-                if (typeof TireWheel !== 'undefined') TireWheel.pause?.();
-                if (typeof SinglePlayerScreen !== 'undefined' && typeof SinglePlayerScreen.launchScenario === 'function') {
-                    SinglePlayerScreen.launchScenario('abu_dhabi_shootout');
-                }
-            });
-        }
 
         if (musicBtn) {
             updateMusicButton(musicBtn);
@@ -387,7 +363,7 @@ window.HomeController = (() => {
 
         EventBus.on('multiplayer:disconnected', (data) => {
             if (data && data.roomCode) {
-                showReconnectPopup(data.roomCode);
+                showReconnectPopup(data, 'multiplayer-disconnected-event');
             }
         });
 
@@ -398,13 +374,78 @@ window.HomeController = (() => {
         });
     }
 
-    function showReconnectPopup(data) {
-        if (typeof Modals === 'undefined' || !data || !data.roomCode) return;
+    function getReconnectPreference(roomCode) {
+        try {
+            const raw = sessionStorage.getItem('velocity_mp_reconnect_preferences');
+            const prefs = raw ? JSON.parse(raw) : {};
+            return prefs?.[roomCode] || null;
+        } catch (e) {
+            console.warn('[HomeController] Failed reading reconnect preferences:', e);
+            return null;
+        }
+    }
+
+    function setReconnectSuppressed(roomCode, suppressed) {
+        if (!roomCode) return;
+        try {
+            const raw = sessionStorage.getItem('velocity_mp_reconnect_preferences');
+            const prefs = raw ? JSON.parse(raw) : {};
+            if (suppressed) {
+                prefs[roomCode] = { roomId: roomCode, suppressReconnect: true, updatedAt: Date.now() };
+            } else {
+                delete prefs[roomCode];
+            }
+            sessionStorage.setItem('velocity_mp_reconnect_preferences', JSON.stringify(prefs));
+
+            const sessionRaw = sessionStorage.getItem('velocity_mp_session');
+            if (sessionRaw) {
+                const sessionData = JSON.parse(sessionRaw);
+                if (sessionData?.roomCode === roomCode) {
+                    sessionData.suppressReconnect = !!suppressed;
+                    sessionStorage.setItem('velocity_mp_session', JSON.stringify(sessionData));
+                }
+            }
+        } catch (e) {
+            console.warn('[HomeController] Failed writing reconnect preference:', e);
+        }
+    }
+
+    function isReconnectSuppressed(roomCode, sessionData = null) {
+        const pref = getReconnectPreference(roomCode);
+        return !!(sessionData?.suppressReconnect || pref?.suppressReconnect);
+    }
+
+    function showReconnectPopup(data, source = 'unknown') {
+        if (typeof Modals === 'undefined' || !data) return;
+        const sessionData = typeof data === 'string' ? { roomCode: data, isHost: false } : data;
+        if (!sessionData.roomCode) return;
         
-        const roomCode = data.roomCode;
-        const isHost = data.isHost;
+        const roomCode = sessionData.roomCode;
+        const isHost = sessionData.isHost;
+        const suppressed = isReconnectSuppressed(roomCode, sessionData);
+
+        console.log('[UplinkReconnect]', {
+            source,
+            roomId: roomCode,
+            suppressReconnect: suppressed,
+            sessionSuppressReconnect: !!sessionData.suppressReconnect,
+            preference: getReconnectPreference(roomCode)
+        });
+
+        if (suppressed) return;
 
         setTimeout(() => {
+            // Re-check immediately before rendering the modal so queued timers cannot ignore Stay Offline.
+            let latestSession = null;
+            try {
+                const raw = sessionStorage.getItem('velocity_mp_session');
+                latestSession = raw ? JSON.parse(raw) : null;
+            } catch(e) {}
+            if (isReconnectSuppressed(roomCode, latestSession?.roomCode === roomCode ? latestSession : sessionData)) {
+                console.log('[UplinkReconnect] Popup suppressed before display', { source, roomId: roomCode });
+                return;
+            }
+
             Modals.confirm({
                 title: '⚡ UPLINK LOST',
                 body: `
@@ -417,7 +458,14 @@ window.HomeController = (() => {
                 `,
                 confirmText: isHost ? 'RE-ESTABLISH HOST' : 'RECONNECT NOW',
                 cancelText: 'STAY OFFLINE',
+                onCancel: () => {
+                    setReconnectSuppressed(roomCode, true);
+                    try { sessionStorage.removeItem('velocity_mp_session'); } catch(e) {}
+                    console.log('[UplinkReconnect] Stay Offline selected', { roomId: roomCode, suppressReconnect: true });
+                },
                 onConfirm: () => {
+                    setReconnectSuppressed(roomCode, false);
+                    console.log('[UplinkReconnect] Reconnect selected', { roomId: roomCode, suppressReconnect: false });
                     if (typeof EventBus !== 'undefined') {
                         EventBus.emit('nav:go', { screen: 'multiplayer', color: '#FF0033' });
                         setTimeout(() => {
@@ -426,8 +474,6 @@ window.HomeController = (() => {
                                     // Special Host Reconnect logic: Re-create with fixed ID
                                     OnlineManager.createRoom(() => {
                                         Notifications.success('Host Session Restored!');
-                                        // Need to move to staging
-                                        MultiplayerScreen.setLobbyView('host_staging');
                                     }, roomCode);
                                 } else {
                                     OnlineManager.connectAndReceiveHostLocked(roomCode, () => {

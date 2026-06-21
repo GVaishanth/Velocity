@@ -1015,6 +1015,11 @@ function getRandomTrack() {
  * Generate a random race calendar of N tracks
  */
 function generateRandomCalendar(numRaces) {
+    if (typeof CalendarService !== 'undefined') {
+        return CalendarService.createCalendar({ seasonLength: numRaces || 10, shuffle: true })
+            .map(id => getTrackById(id))
+            .filter(Boolean);
+    }
     const shuffled = [...TRACKS_DATA].sort(() => Math.random() - 0.5);
     return shuffled.slice(0, Math.min(numRaces, TRACKS_DATA.length));
 }

@@ -158,6 +158,16 @@ window.StateManager = (() => {
 
         const allTeams = generateAllTeams(teamData, drivers, mpOptions);
 
+        // Single authoritative calendar source. Custom/selected calendars are preserved exactly.
+        const providedCalendar = settings.selectedTrackIds || settings.selectedTracks || settings.customCalendar || settings.seasonCalendar || mpOptions?.masterSchedule;
+        const seasonCalendar = (typeof CalendarService !== 'undefined')
+            ? CalendarService.createCalendar({
+                seasonLength: Safe.getNumber(settings, 'seasonLength', 10),
+                selectedTrackIds: providedCalendar,
+                shuffle: !providedCalendar
+            })
+            : generateSchedule(Safe.getNumber(settings, 'seasonLength', 10), providedCalendar);
+
         const career = {
             team: teamData,
             drivers: drivers,
@@ -165,8 +175,10 @@ window.StateManager = (() => {
             budget: 100000000 - calculateTotalCost(drivers, staff),
             season: 1,
             currentRound: 0,
-            totalRounds: Safe.getNumber(settings, 'seasonLength', 10),
-            schedule: (mpOptions && mpOptions.masterSchedule) ? mpOptions.masterSchedule : generateSchedule(Safe.getNumber(settings, 'seasonLength', 10)),
+            totalRounds: seasonCalendar.length,
+            schedule: [...seasonCalendar],
+            seasonCalendar: [...seasonCalendar],
+            selectedTrackIds: providedCalendar ? [...seasonCalendar] : null,
             carStats: { ...(teamData.baseCarStats || { aero: 70, power: 70, reliability: 70, tireMgmt: 70, cooling: 70, grip: 70 }) },
             lastUpgradedPart: null,
             livery: {
@@ -288,10 +300,16 @@ window.StateManager = (() => {
      * Generate a race calendar (random tracks)
      * ROBUST: always returns valid track IDs
      */
-    function generateSchedule(numRaces) {
+    function generateSchedule(numRaces, selectedTrackIds = null) {
+        if (typeof CalendarService !== 'undefined') {
+            return CalendarService.createCalendar({
+                seasonLength: numRaces || 10,
+                selectedTrackIds,
+                shuffle: !selectedTrackIds
+            });
+        }
         if (typeof TRACKS_DATA === 'undefined' || !Array.isArray(TRACKS_DATA) || TRACKS_DATA.length === 0) {
-            // Fallback hardcoded safe IDs (matches real data)
-            const fallback = ['bahrain','jeddah','melbourne','suzuka','shanghai','miami','imola','monaco','barcelona','montreal'];
+            const fallback = ['monaco','silverstone','spa','monza','suzuka','interlagos','bahrain','shanghai','albert_park','hungaroring'];
             return fallback.slice(0, numRaces || 10);
         }
         const shuffled = [...TRACKS_DATA].sort(() => Math.random() - 0.5);
@@ -383,25 +401,66 @@ window.StateManager = (() => {
 
         if (savedState) {
             state = { ...state, ...savedState };
+            if (state.career && typeof CalendarService !== 'undefined') {
+                CalendarService.ensureCareerCalendar(state.career, { seasonLength: state.career.totalRounds || state.settings?.seasonLength || 10 });
+            }
             EventBus.emit('state:loaded', state);
             return true;
         }
         return false;
     }
 
+    function loadMultiplayerSave() {
+        const savedState = SaveSystem.load('mp_gamestate') || SaveSystem.load('mp_autosave');
+        if (!savedState) return false;
+        if (!savedState.career?.isMultiplayer && !savedState.race?.isMultiplayerRace) {
+            console.warn('[StateManager] Refusing to load non-multiplayer data from multiplayer slot');
+            return false;
+        }
+        state = { ...state, ...savedState };
+        if (state.career) state.career.isMultiplayer = true;
+        if (state.career && typeof CalendarService !== 'undefined') {
+            CalendarService.ensureCareerCalendar(state.career, { seasonLength: state.career.totalRounds || state.settings?.seasonLength || 10 });
+        }
+        EventBus.emit('state:loaded', state);
+        return true;
+    }
+
+    function captureLiveRaceState() {
+        try {
+            if (typeof RaceEngine !== 'undefined' && RaceEngine.getSerializableState && RaceEngine.getState && RaceEngine.getState()) {
+                const liveRace = RaceEngine.getSerializableState();
+                if (liveRace) {
+                    state.race = liveRace;
+                    return liveRace;
+                }
+            }
+        } catch (e) {
+            console.warn('[StateManager] Failed to capture live RaceEngine state:', e);
+        }
+        return state.race;
+    }
+
     /**
      * Save current game
      */
     function saveGame() {
+        const authoritativeRace = captureLiveRaceState();
+
+        const isMultiplayerContext = !!(state.career?.isMultiplayer || authoritativeRace?.isMultiplayerRace);
+
         // --- MULTIPLAYER GUARD ---
         // Strictly prevent multiplayer sessions from overwriting the single-player 'gamestate'.
-        if (state.career?.isMultiplayer) {
+        if (isMultiplayerContext) {
+            if (typeof CalendarService !== 'undefined') {
+                CalendarService.ensureCareerCalendar(state.career, { seasonLength: state.career.totalRounds || state.settings?.seasonLength || 10 });
+            }
             const mpSaveData = {
                 mode: state.mode,
                 profile: state.profile,
                 career: state.career,
                 settings: state.settings,
-                race: state.race
+                race: authoritativeRace
             };
             
             // Persist to session storage so Host can re-broadcast after reload
@@ -414,17 +473,24 @@ window.StateManager = (() => {
                 }
             } catch(e) {}
 
-            SaveSystem.save('mp_gamestate', mpSaveData);
-            return false; 
+            const saved = SaveSystem.save('mp_gamestate', mpSaveData);
+            SaveSystem.autoSave(mpSaveData, 'mp_autosave');
+            return saved;
+        }
+
+        if (state.career && typeof CalendarService !== 'undefined') {
+            CalendarService.ensureCareerCalendar(state.career, { seasonLength: state.career.totalRounds || state.settings?.seasonLength || 10 });
         }
 
         const saveData = {
             mode: state.mode,
             profile: state.profile,
             career: state.career,
+            race: authoritativeRace,
             settings: state.settings
         };
         const success = SaveSystem.saveGameState(saveData);
+        SaveSystem.autoSave(saveData, 'autosave');
         if (success) {
             EventBus.emit('ui:notify', {
                 message: 'Game saved',
@@ -533,9 +599,12 @@ window.StateManager = (() => {
         set,
         update,
         initCareer,
+        generateAllTeams,
         initChampionshipStandings, // Export this
         loadFromSave,
+        loadMultiplayerSave,
         saveGame,
+        captureLiveRaceState,
         loadProfile,
         saveProfile,
         randomizeGameData,

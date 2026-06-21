@@ -39,6 +39,9 @@ window.SinglePlayerScreen = (() => {
             hasSave = false;
             saveData = null;
         }
+        if (saveData && !saveData.career && saveData.race?.isLiveRaceState) {
+            hasSave = true;
+        }
 
         const saveMeta = hasSave && SaveSystem.getMeta ? SaveSystem.getMeta('gamestate') : null;
 
@@ -71,6 +74,12 @@ window.SinglePlayerScreen = (() => {
                                     Season ${saveData.career.season || 1} • ${(saveData.career.currentRound || 0) >= (saveData.career.totalRounds || 1) ? `Completed (${saveData.career.totalRounds}/${saveData.career.totalRounds})` : `Round ${(saveData.career.currentRound || 0) + 1}/${saveData.career.totalRounds || 1}`}<br>
                                     ${saveMeta ? saveMeta.date : ''}
                                 </span>
+                            ` : hasSave && saveData?.race?.isLiveRaceState ? `
+                                Live Race Recovery<br>
+                                <span style="color: var(--gray-500); font-size: 11px">
+                                    ${escapeHTML(saveData.race.track?.name || 'Saved Race')} • Lap ${saveData.race.currentLap || 0}/${saveData.race.totalLaps || '?'}<br>
+                                    ${saveMeta ? saveMeta.date : ''}
+                                </span>
                             ` : 'No saved career found'}
                         </div>
                         <button class="btn btn-glow btn-full" ${!hasSave ? 'disabled' : ''}>RESUME</button>
@@ -90,12 +99,6 @@ window.SinglePlayerScreen = (() => {
                         <button class="btn btn-glow btn-full">LOAD</button>
                     </div>
 
-                    <div class="sp-mode-card premium-scenario-card" data-mode="scenarios">
-                        <div class="sp-mode-icon" style="color: #FFD700; text-shadow: 0 0 20px rgba(255,215,0,0.6);">📜</div>
-                        <div class="sp-mode-title" style="color: #FFD700;">HALL OF GLORY</div>
-                        <div class="sp-mode-desc">Drop straight into iconic historical F1 title shootouts & extreme managerial scenarios</div>
-                        <button class="btn btn-glow btn-full" style="background: rgba(255,215,0,0.1); border-color: #FFD700; color: #FFD700;">SELECT SCENARIO</button>
-                    </div>
                 </div>
 
                 <div class="sp-footer">
@@ -116,6 +119,14 @@ window.SinglePlayerScreen = (() => {
 
         EventBus.on('screen:singleplayer:enter', () => {
             isActive = true;
+            // Runtime isolation: never let an active multiplayer career bleed into Single Player UI/state.
+            const activeCareer = StateManager.get('career');
+            if (activeCareer?.isMultiplayer) {
+                StateManager.saveGame?.(); // saves to mp_gamestate because isMultiplayer=true
+                StateManager.set('career', null);
+                StateManager.set('race', null);
+                StateManager.set('mode', 'MENU');
+            }
             render();
             attachCardListeners();
         });
@@ -172,292 +183,7 @@ window.SinglePlayerScreen = (() => {
                 loadGame();
                 break;
 
-            case 'scenarios':
-                showScenariosHub();
-                break;
         }
-    }
-
-    /**
-     * Display The Hall of Glory Scenario Selection Hub
-     */
-    function showScenariosHub() {
-        Modals.open({
-            title: 'THE HALL OF GLORY — LEGENDARY SCENARIOS',
-            className: 'modal-lg',
-            body: `
-                <div class="scenarios-hub-container" style="display: flex; flex-direction: column; gap: 20px;">
-                    <p style="color: var(--gray-400); font-size: 15px; font-family: Rajdhani; text-align: center; margin-bottom: 10px;">
-                        Select an iconic historical Grand Prix scenario. Your power unit, starting rubber, weather, and grid delta will be fully pre-configured.
-                    </p>
-
-                    <!-- SCENARIO 1: MIRACLE OF BRAZIL -->
-                    <div class="scenario-card" style="display: flex; gap: 16px; background: var(--surface-1); border: 2px solid #00FF41; border-radius: 8px; padding: 16px; align-items: center;">
-                        <div style="font-size: 40px; min-width: 60px; text-align: center;">🌧️🇧🇷</div>
-                        <div style="flex: 1; min-width: 0;">
-                            <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 4px;">
-                                <span class="badge" style="background: rgba(0,255,65,0.2); color: var(--green); font-family: Orbitron; font-size: 10px; padding: 2px 6px;">WET SHOOTOUT</span>
-                                <span style="font-family: Orbitron; font-weight: 900; font-size: 18px; color: var(--white);">THE MIRACLE OF BRAZIL</span>
-                            </div>
-                            <p style="font-family: Rajdhani; font-size: 14px; color: var(--gray-300); margin-bottom: 8px; line-height: 1.4;">
-                                You sit P6 on completely slick Soft tires in a torrential Brazilian downpour with exactly 5 laps remaining. You must immediately execute an emergency box for Intermediates, master the slick braking transition, and slice through rival spray to snatch P1 and win the Constructor title by 1 point!
-                            </p>
-                            <div style="font-family: Orbitron; font-size: 11px; color: var(--gray-400); display: flex; gap: 16px; flex-wrap: wrap;">
-                                <span>🎯 Target: Win Race (P1)</span>
-                                <span>🏎️ Constructor: Novara Racing</span>
-                                <span>🗺️ Circuit: Interlagos Senna</span>
-                            </div>
-                        </div>
-                        <button class="btn btn-glow" style="padding: 12px 24px; font-family: Orbitron; font-weight: 900;" onclick="SinglePlayerScreen.launchScenario('miracle_of_brazil')">
-                            EXECUTE
-                        </button>
-                    </div>
-
-                    <!-- SCENARIO 2: ABU DHABI SHOOTOUT -->
-                    <div class="scenario-card" style="display: flex; gap: 16px; background: var(--surface-1); border: 2px solid #FFD700; border-radius: 8px; padding: 16px; align-items: center;">
-                        <div style="font-size: 40px; min-width: 60px; text-align: center;">🇦🇪🏆</div>
-                        <div style="flex: 1; min-width: 0;">
-                            <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 4px;">
-                                <span class="badge" style="background: rgba(255,215,0,0.2); color: var(--yellow); font-family: Orbitron; font-size: 10px; padding: 2px 6px;">FINAL LAP SPRINT</span>
-                                <span style="font-family: Orbitron; font-weight: 900; font-size: 18px; color: var(--white);">THE ABU DHABI SHOOTOUT</span>
-                            </div>
-                            <p style="font-family: Rajdhani; font-size: 14px; color: var(--gray-300); margin-bottom: 8px; line-height: 1.4;">
-                                2 laps remaining. The green flags wave after a lengthy Safety Car neutralization. You sit P2 on fresh Soft rubber right on the gearbox of the rival World Champion who is struggling on dead Hard rubber. You have exactly 3 charges of ERS Boost—execute the ultimate title move!
-                            </p>
-                            <div style="font-family: Orbitron; font-size: 11px; color: var(--gray-400); display: flex; gap: 16px; flex-wrap: wrap;">
-                                <span>🎯 Target: Pass Rival (P1)</span>
-                                <span>🏎️ Constructor: Invicta Red</span>
-                                <span>🗺️ Circuit: Sunset Boulevard</span>
-                            </div>
-                        </div>
-                        <button class="btn btn-glow" style="padding: 12px 24px; font-family: Orbitron; font-weight: 900; background: rgba(255,215,0,0.1); border-color: #FFD700; color: #FFD700;" onclick="SinglePlayerScreen.launchScenario('abu_dhabi_shootout')">
-                            EXECUTE
-                        </button>
-                    </div>
-
-                    <!-- SCENARIO 3: STRAT 5 MONACO DEFENSE -->
-                    <div class="scenario-card" style="display: flex; gap: 16px; background: var(--surface-1); border: 2px solid #FF0033; border-radius: 8px; padding: 16px; align-items: center;">
-                        <div style="font-size: 40px; min-width: 60px; text-align: center;">🇲🇨🛡️</div>
-                        <div style="flex: 1; min-width: 0;">
-                            <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 4px;">
-                                <span class="badge" style="background: rgba(255,0,51,0.2); color: var(--red); font-family: Orbitron; font-size: 10px; padding: 2px 6px;">STREET DEFENSE</span>
-                                <span style="font-family: Orbitron; font-weight: 900; font-size: 18px; color: var(--white);">THE STRAT 5 MONACO DEFENSE</span>
-                            </div>
-                            <p style="font-family: Rajdhani; font-size: 14px; color: var(--gray-300); margin-bottom: 8px; line-height: 1.4;">
-                                8 narrow street laps remaining. You lead the Monaco Grand Prix in P1 but your power unit and ERS thermals are absolutely critical. Two incredibly relentless rival Constructor cars are glued directly to your diffuser. Master your cockpit regen and impenetrable defensive lines to hold P1!
-                            </p>
-                            <div style="font-family: Orbitron; font-size: 11px; color: var(--gray-400); display: flex; gap: 16px; flex-wrap: wrap;">
-                                <span>🎯 Target: Defend P1</span>
-                                <span>🏎️ Constructor: Veloce Scuderia</span>
-                                <span>🗺️ Circuit: Crimson Bay GP</span>
-                            </div>
-                        </div>
-                        <button class="btn btn-glow" style="padding: 12px 24px; font-family: Orbitron; font-weight: 900; background: rgba(255,0,51,0.1); border-color: #FF0033; color: #FF0033;" onclick="SinglePlayerScreen.launchScenario('monaco_defense')">
-                            EXECUTE
-                        </button>
-                    </div>
-                </div>
-            `,
-            actions: [{ label: 'Cancel', type: 'secondary' }]
-        });
-    }
-
-    /**
-     * Launch selected Legendary Scenario
-     */
-    function launchScenario(scenarioId) {
-        Modals.close();
-        if (typeof AudioManager !== 'undefined') AudioManager.uiClick();
-
-        let playerTeamId = 'novara';
-        let trackId = 'interlagos';
-        let totalLaps = 8;
-        let startLap = 3;
-        let status = 'GREEN';
-        let weather = 'HEAVY_RAIN';
-        let startingTire = 'SOFT';
-        let playerWear = 65;
-        let playerRisk = 15;
-        let playerBoosts = 3;
-        let rivalTire = 'WET';
-        let rivalWear = 15;
-
-        let name = 'The Miracle of Brazil';
-
-        if (scenarioId === 'abu_dhabi_shootout') {
-            playerTeamId = 'invicta';
-            trackId = 'yas_marina';
-            totalLaps = 6;
-            startLap = 4;
-            status = 'SAFETY_CAR';
-            weather = 'CLOUDY';
-            startingTire = 'SOFT';
-            playerWear = 10;
-            playerRisk = 20;
-            playerBoosts = 3;
-            rivalTire = 'HARD';
-            rivalWear = 85;
-            name = 'The Abu Dhabi Shootout';
-        } else if (scenarioId === 'monaco_defense') {
-            playerTeamId = 'veloce';
-            trackId = 'monaco';
-            totalLaps = 8;
-            startLap = 0;
-            status = 'GREEN';
-            weather = 'CLOUDY';
-            startingTire = 'MEDIUM';
-            playerWear = 45;
-            playerRisk = 80;
-            playerBoosts = 1;
-            rivalTire = 'SOFT';
-            rivalWear = 20;
-            name = 'The Strat 5 Monaco Defense';
-        }
-
-        const team = TEAMS_DATA.find(t => t.id === playerTeamId) || TEAMS_DATA[0];
-        const track = TRACKS_DATA.find(t => t.id === trackId) || TRACKS_DATA[0];
-
-        // Assign player drivers
-        const usedDriverIds = [];
-        const playerDrivers = [DRIVERS_DATA[0], DRIVERS_DATA[1]];
-        playerDrivers.forEach(d => usedDriverIds.push(d.id));
-
-        // Build all 12 teams
-        const allTeams = TEAMS_DATA.map(t => {
-            if (t.id === team.id) {
-                return {
-                    ...t,
-                    isPlayer: true,
-                    isLocalPlayer: true,
-                    drivers: playerDrivers,
-                    carStats: { ...t.baseCarStats }
-                };
-            } else {
-                const aiDrivers = [];
-                for (let k = 0; k < 2; k++) {
-                    const avail = DRIVERS_DATA.filter(d => !usedDriverIds.includes(d.id));
-                    const d = avail[Math.floor(Math.random() * avail.length)] || DRIVERS_DATA[k];
-                    usedDriverIds.push(d.id);
-                    aiDrivers.push(d);
-                }
-                return {
-                    ...t,
-                    isPlayer: false,
-                    isLocalPlayer: false,
-                    drivers: aiDrivers,
-                    carStats: { ...t.baseCarStats }
-                };
-            }
-        });
-
-        // Collect all 24 drivers to construct definitive grid
-        let allDrivers = [];
-        allTeams.forEach(t => {
-            t.drivers?.forEach(d => {
-                allDrivers.push({ driver: d, team: t });
-            });
-        });
-
-        // Sort so player drivers land exactly on assigned starting positions
-        let grid = [];
-        let pDrivers = allDrivers.filter(x => x.team.id === team.id);
-        let rDrivers = allDrivers.filter(x => x.team.id !== team.id);
-
-        if (scenarioId === 'abu_dhabi_shootout') {
-            // P1 must be Paragon (Mercedes style)
-            const pRival = rDrivers.find(x => x.team.id === 'paragon') || rDrivers[0];
-            rDrivers = rDrivers.filter(x => x.driver.id !== pRival.driver.id);
-            const ordered = [
-                pRival,
-                pDrivers[0],
-                pDrivers[1],
-                ...rDrivers
-            ];
-            grid = ordered.map((item, idx) => ({ carId: item.driver.id, position: idx + 1 }));
-        } else if (scenarioId === 'monaco_defense') {
-            // Player is P1 and P2
-            const ordered = [
-                pDrivers[0],
-                rDrivers[0],
-                rDrivers[1],
-                pDrivers[1],
-                ...rDrivers.slice(2)
-            ];
-            grid = ordered.map((item, idx) => ({ carId: item.driver.id, position: idx + 1 }));
-        } else {
-            // Miracle of Brazil: Player sits P5 and P6
-            const ordered = [
-                rDrivers[0],
-                rDrivers[1],
-                rDrivers[2],
-                rDrivers[3],
-                pDrivers[0],
-                pDrivers[1],
-                ...rDrivers.slice(4)
-            ];
-            grid = ordered.map((item, idx) => ({ carId: item.driver.id, position: idx + 1 }));
-        }
-
-        const scenarioTrack = { ...track, laps: totalLaps };
-
-        const rivalSetups = [];
-        for (let i = 0; i < 24; i++) {
-            let rComp = rivalTire;
-            let rWear = rivalWear + Math.random() * 5;
-            let rGap = i * 1.5;
-            if (scenarioId === 'abu_dhabi_shootout' && i === 0) {
-                // Rival World Champ in P1
-                rComp = 'HARD';
-                rWear = 85;
-                rGap = 0;
-            } else if (scenarioId === 'abu_dhabi_shootout' && i === 1) {
-                // Player in P2
-                rGap = 0.5;
-            } else if (scenarioId === 'monaco_defense') {
-                rComp = 'SOFT';
-                rWear = 20 + i * 2;
-                if (i === 1) rGap = 0.4;
-                if (i === 2) rGap = 0.8;
-            } else if (scenarioId === 'miracle_of_brazil') {
-                if (i < 4) {
-                    rComp = (i % 2 === 0) ? 'WET' : 'INTERMEDIATE';
-                    rWear = 15 + i * 3;
-                    rGap = i * 2.2;
-                }
-            }
-            rivalSetups.push({ compound: rComp, wearPercent: rWear, gap: rGap });
-        }
-
-        const scenarioConfig = {
-            id: scenarioId,
-            name: name,
-            startLap: startLap,
-            totalLaps: totalLaps,
-            status: status,
-            weather: weather,
-            scLaps: status === 'SAFETY_CAR' ? 1 : 0,
-            playerSetup: {
-                compound: startingTire,
-                wearPercent: playerWear,
-                boostRisk: playerRisk,
-                boosts: playerBoosts
-            },
-            rivalSetups: rivalSetups
-        };
-
-        StateManager.set('mode', 'SCENARIO_RACE');
-        StateManager.set('race', {
-            track: scenarioTrack,
-            allTeams: allTeams,
-            playerTeamId: team.id,
-            difficulty: 'ELITE',
-            strategy: { startingTire: startingTire, pitStops: 1, aggression: 8 },
-            grid: grid,
-            isScenario: true,
-            scenarioConfig: scenarioConfig
-        });
-
-        EventBus.emit('nav:go', { screen: 'race', color: '#FFD700' });
     }
 
     /**
@@ -503,6 +229,13 @@ window.SinglePlayerScreen = (() => {
         }
 
         const career = StateManager.get('career');
+        const race = StateManager.get('race');
+        if (!career && race?.isLiveRaceState) {
+            Notifications.success('Live race recovered', `${race.track?.name || 'Saved Race'} - Lap ${race.currentLap || 0}`);
+            StateManager.set('mode', 'LIVE_RACE');
+            EventBus.emit('nav:go', { screen: 'race', color: '#00FF41' });
+            return;
+        }
         if (!career) {
             Notifications.error('No career data found');
             return;
@@ -510,8 +243,13 @@ window.SinglePlayerScreen = (() => {
 
         Notifications.success('Career loaded', `${career.team.name} - Season ${career.season}`);
 
-        StateManager.set('mode', 'CAREER');
-        EventBus.emit('nav:go', { screen: 'dashboard', color: '#00FF41' });
+        if (race?.isLiveRaceState && !race.finished) {
+            StateManager.set('mode', 'LIVE_RACE');
+            EventBus.emit('nav:go', { screen: 'race', color: '#00FF41' });
+        } else {
+            StateManager.set('mode', 'CAREER');
+            EventBus.emit('nav:go', { screen: 'dashboard', color: '#00FF41' });
+        }
     }
 
     /**
@@ -639,10 +377,13 @@ window.SinglePlayerScreen = (() => {
         // Adjust lap count
         const quickTrack = { ...track, laps: Math.max(5, Math.round(track.laps * lengthMult)) };
 
-        // Set up race state
-        StateManager.set('mode', 'QUICK_RACE');
-        StateManager.set('race', {
+        // Set up race state through the shared initializer
+        if (typeof RaceInitializer === 'undefined') throw new Error('RaceInitializer unavailable: cannot launch Quick Race');
+        RaceInitializer.initializeRace({
+            mode: 'QUICK_RACE',
+            source: 'quick-race',
             track: quickTrack,
+            totalLaps: quickTrack.laps,
             allTeams: allTeams,
             playerTeamId: team.id,
             difficulty: difficulty,
@@ -761,30 +502,6 @@ window.SinglePlayerScreen = (() => {
                 line-height: 1.5;
                 margin-bottom: var(--space-lg);
             }
-
-            /* Premium Hall of Glory Spotlight Card */
-            .sp-mode-card.premium-scenario-card {
-                grid-column: 1 / -1;
-                border: 2px solid rgba(255, 215, 0, 0.4);
-                background: linear-gradient(135deg, rgba(255,215,0,0.08), rgba(0,0,0,0.5));
-            }
-            .sp-mode-card.premium-scenario-card:hover {
-                border-color: #FFD700;
-                box-shadow: 0 0 35px rgba(255,215,0,0.25);
-                transform: translateY(-6px);
-            }
-            @media (max-width: 800px) {
-                .sp-mode-card.premium-scenario-card { grid-column: auto; }
-            }
-
-            /* Modal scenario cards */
-            .scenario-card {
-                transition: all var(--transition-base);
-            }
-            .scenario-card:hover {
-                transform: scale(1.01);
-                box-shadow: 0 4px 20px rgba(255,255,255,0.08);
-            }
             .sp-footer {
                 text-align: center;
                 margin-top: auto;
@@ -812,5 +529,5 @@ window.SinglePlayerScreen = (() => {
         isActive = false;
     }
 
-    return { init, render, showScenariosHub, launchScenario, destroy };
+    return { init, render, destroy };
 })();

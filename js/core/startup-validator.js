@@ -13,11 +13,14 @@ window.StartupValidator = (() => {
         state: false,
         save: false,
         screens: false,
+        apis: false,
         errors: []
     };
 
     function run() {
         console.log('%c[StartupValidator] Running application health check...', 'color:#888');
+        results.errors = [];
+        results.apis = false;
 
         // 1. Data
         try {
@@ -55,6 +58,9 @@ window.StartupValidator = (() => {
         try {
             results.save = typeof SaveSystem !== 'undefined' && typeof SaveSystem.load === 'function';
             if (!results.save) throw new Error('SaveSystem not available');
+            ['loadBackup', 'autoSave', 'validateAndRepairSaveData', 'validateAndRepairRace'].forEach(method => {
+                if (typeof SaveSystem[method] !== 'function') throw new Error(`SaveSystem.${method} missing`);
+            });
             console.log('  ✓ SaveSystem');
         } catch (e) { results.errors.push('Save: ' + e.message); }
 
@@ -79,6 +85,15 @@ window.StartupValidator = (() => {
             console.log('  ✓ Data helpers present');
         }
 
+        try {
+            if (typeof StateManager === 'undefined' || typeof StateManager.captureLiveRaceState !== 'function') {
+                results.errors.push('StateManager.captureLiveRaceState() missing');
+            }
+        } catch(e) { results.errors.push('StateManager live race capture validation failed'); }
+
+        // 5. Public runtime API contracts used across screens/systems
+        validatePublicApis();
+
         // Report
         const failed = results.errors.length;
         if (failed > 0) {
@@ -93,8 +108,60 @@ window.StartupValidator = (() => {
         return results;
     }
 
+    function validatePublicApis() {
+        const contracts = {
+            StateManager: [
+                'getState', 'get', 'set', 'update', 'initCareer', 'generateAllTeams', 'saveGame',
+                'captureLiveRaceState', 'loadFromSave', 'loadMultiplayerSave', 'loadProfile', 'saveProfile'
+            ],
+            RaceEngine: [
+                'initRace', 'start', 'update', 'finishRace', 'skipToEnd',
+                'getState', 'getSerializableState', 'restoreRace', 'getPositionDebugData', 'getCars', 'getCar', 'getPlayerCars', 'getLocalPlayerCars',
+                'setDriverMode', 'playerPitCall', 'activateOvertakeBoost',
+                'setSpeed', 'getSpeed', 'pause', 'resume', 'togglePause',
+                'isCurrentlyPaused', 'destroy'
+            ],
+            OnlineManager: [
+                'init', 'createRoom', 'connectAndReceiveHostLocked',
+                'lockInHost', 'lockInClient', 'cleanup', 'triggerReady',
+                'toggleWeekendReady', 'broadcastAction', 'sendLiveAction', 'sendChat',
+                'launchDuel', 'updateSettings', 'persistSession', 'getSettings', 'isHost',
+                'getOnlinePlayers', 'getMyUsername', 'getMyConnectionId',
+                'handleSkipVoteConfirm', 'setUICallback'
+            ],
+            CalendarService: [
+                'createCalendar', 'validateCalendar', 'validateCareerCalendar',
+                'createNextSeasonCalendar', 'generateNextSeason', 'ensureCareerCalendar',
+                'applyCalendar', 'saveCalendar', 'loadCalendar', 'advanceRound',
+                'getCareerCalendar', 'getNextRace', 'isSeasonComplete', 'normalizeTrackIds', 'getTrack'
+            ],
+            RaceInitializer: [
+                'initializeRace', 'initializeCareerRace',
+                'validateRaceConfig', 'validateGrid', 'validateTeams', 'generateGrid'
+            ]
+        };
+
+        results.apis = true;
+        Object.entries(contracts).forEach(([globalName, methods]) => {
+            const api = window[globalName];
+            if (!api) {
+                results.apis = false;
+                results.errors.push(`Public API ${globalName} missing`);
+                return;
+            }
+            methods.forEach(method => {
+                if (typeof api[method] !== 'function') {
+                    results.apis = false;
+                    results.errors.push(`Public API ${globalName}.${method}() missing`);
+                }
+            });
+        });
+
+        if (results.apis) console.log('  ✓ Runtime public API contracts');
+    }
+
     function isHealthy() {
-        return results.errors.length === 0 && results.tracks && results.drivers && results.teams;
+        return results.errors.length === 0 && results.tracks && results.drivers && results.teams && results.apis;
     }
 
     function getReport() {

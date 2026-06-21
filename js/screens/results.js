@@ -153,11 +153,7 @@ window.ResultsScreen = (() => {
 
                     <!-- STRATEGIC DECK REDIRECT ACTIONS -->
                     <div class="results-actions">
-                        ${race?.isScenario ? `
-                            <button class="btn btn-glow btn-large" id="res-scenario-action" style="background: rgba(255,215,0,0.15); border-color: #FFD700; color: #FFD700; font-weight: 900; font-family: Orbitron; font-size: 14px; padding: 16px 36px; cursor: pointer;">
-                                📜 RETURN TO HALL OF GLORY →
-                            </button>
-                        ` : race?.isCareerRace ? `
+                        ${race?.isCareerRace ? `
                             <button class="btn btn-primary btn-large" id="res-continue" style="font-family: Orbitron; font-weight: 900; font-size: 14px; padding: 16px 36px; cursor: pointer;">
                                 CONTINUE TO DASHBOARD →
                             </button>
@@ -252,7 +248,11 @@ window.ResultsScreen = (() => {
                     : -1;
                 
                 if (career.currentRound < lastHistoryRound) {
-                    career.currentRound = lastHistoryRound;
+                    if (typeof CalendarService !== 'undefined') {
+                        CalendarService.advanceRound(career, lastHistoryRound);
+                    } else {
+                        career.currentRound = lastHistoryRound;
+                    }
                     StateManager.set('career', career);
                     StateManager.saveGame?.();
                 }
@@ -265,17 +265,6 @@ window.ResultsScreen = (() => {
             e.stopPropagation();
             if (typeof AudioManager !== 'undefined') AudioManager.uiClick?.();
             EventBus.emit('nav:home');
-        });
-
-        container.querySelector('#res-scenario-action')?.addEventListener('click', (e) => {
-            e.stopPropagation();
-            if (typeof AudioManager !== 'undefined') AudioManager.uiClick?.();
-            EventBus.emit('nav:go', { screen: 'singleplayer', color: '#FFD700' });
-            setTimeout(() => {
-                if (typeof SinglePlayerScreen !== 'undefined' && typeof SinglePlayerScreen.showScenariosHub === 'function') {
-                    SinglePlayerScreen.showScenariosHub();
-                }
-            }, 700);
         });
     }
 

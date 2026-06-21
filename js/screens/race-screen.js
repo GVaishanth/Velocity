@@ -11,6 +11,7 @@ window.RaceScreen = (() => {
     let resultsProcessed = false;
     let weatherUpdateInterval = null;
     let registeredSubsystems = [];
+    let lastRaceSnapshotSync = 0;
 
     function init() {
         attachListeners();
@@ -114,19 +115,37 @@ window.RaceScreen = (() => {
             const settings = StateManager.get('settings') || {};
             const speed = raceData.speed || settings.raceSpeed || 2;
 
-            RaceEngine.initRace(raceData.track, raceData.allTeams, {
-                difficulty: raceData.difficulty || settings.difficulty || 'COMPETITIVE',
-                speed: speed,
-                playerTeamId: raceData.playerTeamId,
-                strategy: raceData.strategy,
-                grid: raceData.grid || (typeof StateManager !== 'undefined' ? StateManager.get('qualiStartingGrid') : null),
-                isScenario: raceData.isScenario,
-                scenarioConfig: raceData.scenarioConfig
-            });
+            if (raceData.isLiveRaceState && Array.isArray(raceData.cars) && typeof RaceEngine.restoreRace === 'function') {
+                console.log('[RaceScreen] Restoring authoritative live race state');
+                RaceEngine.restoreRace(raceData);
+            } else {
+                if (typeof RaceInitializer !== 'undefined' && RaceInitializer.validateRaceConfig) {
+                    const validation = RaceInitializer.validateRaceConfig(raceData);
+                    if (!validation.valid) {
+                        console.error('[RaceScreen] Race setup validation failed:', validation.errors, raceData);
+                        throw new Error('Invalid race setup: ' + validation.errors.join('; '));
+                    }
+                }
+                RaceEngine.initRace(raceData.track, raceData.allTeams, {
+                    difficulty: raceData.difficulty || settings.difficulty || 'COMPETITIVE',
+                    speed: speed,
+                    playerTeamId: raceData.playerTeamId,
+                    strategy: raceData.strategy,
+                    grid: raceData.grid || (typeof StateManager !== 'undefined' ? StateManager.get('qualiStartingGrid') : null),
+                    weather: raceData.weather,
+                    isCareerRace: raceData.isCareerRace,
+                    isQuickRace: raceData.isQuickRace,
+                    isMultiplayerRace: raceData.isMultiplayerRace,
+                });
+            }
 
             // --- CRITICAL CHECK: Ensure engine state exists before proceeding ---
             if (!RaceEngine.getState()) {
                 throw new Error('RaceEngine failed to initialize state');
+            }
+            if (typeof StateManager !== 'undefined' && typeof RaceEngine.getSerializableState === 'function') {
+                StateManager.set('race', RaceEngine.getSerializableState());
+                StateManager.set('mode', 'LIVE_RACE');
             }
 
             // Setup rendering
@@ -159,6 +178,13 @@ window.RaceScreen = (() => {
 
                             // --- LIVE SPONSOR TRACKING ---
                             updateSponsorHUD();
+
+                            // Keep StateManager.race aligned to the authoritative RaceEngine live state for saves/reconnects
+                            const now = Date.now();
+                            if (now - lastRaceSnapshotSync > 2000 && typeof RaceEngine.getSerializableState === 'function') {
+                                StateManager.set('race', RaceEngine.getSerializableState());
+                                lastRaceSnapshotSync = now;
+                            }
                             
                             // Dynamic Engine Audio Modulation based on player's lead car pace
                             if (typeof AudioManager !== 'undefined') {
@@ -248,8 +274,8 @@ window.RaceScreen = (() => {
         if (topBar) {
             topBar.innerHTML = `
                 <div class="race-info-left">
-                    ${raceData.isScenario ? `<div class="race-round" style="color: #FFD700; border-color: #FFD700; background: rgba(255,215,0,0.15);">★ HALL OF GLORY</div>` : (roundNum && totalRounds ? `<div class="race-round">ROUND ${roundNum}/${totalRounds}</div>` : '')}
-                    <div class="race-name">${track.flag} ${escapeHTML(raceData.scenarioConfig?.name || track.name)}</div>
+                    ${roundNum && totalRounds ? `<div class="race-round">ROUND ${roundNum}/${totalRounds}</div>` : ''}
+                    <div class="race-name">${track.flag} ${escapeHTML(track.name)}</div>
                 </div>
 
                 <div class="race-info-center">
@@ -683,7 +709,10 @@ window.RaceScreen = (() => {
             if (typeof RaceEngine !== 'undefined') RaceEngine.start();
         };
 
-        if (typeof Transitions !== 'undefined' && Transitions.raceLightSequence) {
+        const restoredLiveRace = !!RaceEngine.getState()?.isLiveRaceState && (RaceEngine.getState()?.elapsedTime || 0) > 0;
+        if (restoredLiveRace) {
+            forceStart();
+        } else if (typeof Transitions !== 'undefined' && Transitions.raceLightSequence) {
             // Give sequence 15s to finish, otherwise force start
             const safetyTimeout = setTimeout(forceStart, 15000);
             
@@ -867,6 +896,9 @@ window.RaceScreen = (() => {
         }
         registeredSubsystems = [];
 
+        if (typeof RaceEngine !== 'undefined' && typeof RaceEngine.getSerializableState === 'function' && RaceEngine.getState()) {
+            try { StateManager.set('race', RaceEngine.getSerializableState()); } catch(e) {}
+        }
         if (typeof RaceEngine !== 'undefined') RaceEngine.destroy();
         if (typeof AnimationLoop !== 'undefined') AnimationLoop.stop();
         if (typeof TimingTable !== 'undefined') TimingTable.destroy();
