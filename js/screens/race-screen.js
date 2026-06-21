@@ -99,10 +99,11 @@ window.RaceScreen = (() => {
         try {
             console.log('[RaceScreen] Setting up race...');
             resultsProcessed = false;
-            const raceData = StateManager.get('race');
-            if (!raceData) {
-                Notifications.error('No race data found');
-                EventBus.emit('nav:home');
+            const raceData = Safe.get(StateManager, 'get') ? StateManager.get('race') : null;
+            if (!raceData || !raceData.track || !Array.isArray(raceData.allTeams)) {
+                console.error('[RaceScreen] Invalid or missing raceData');
+                if (typeof Notifications !== 'undefined') Notifications.error('Race data corrupted', 'Returning to home');
+                setTimeout(() => EventBus.emit('nav:home'), 800);
                 return;
             }
 

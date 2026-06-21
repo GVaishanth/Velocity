@@ -101,14 +101,19 @@ window.RaceWeekendScreen = (() => {
     function render() {
         if (!container) return;
 
-        const career = StateManager.get('career');
+        const career = Safe.get(StateManager, 'get') ? StateManager.get('career') : null;
         if (!career) {
             if (typeof EventBus !== 'undefined') EventBus.emit('nav:home');
+            container.innerHTML = '<div style="padding:40px;text-align:center;color:#888;">No career data. <button onclick="EventBus.emit(\'nav:home\')">Return Home</button></div>';
             return;
         }
 
-        const trackId = career?.schedule?.[career?.currentRound || 0];
-        const track = (typeof getTrackById === 'function' && trackId ? getTrackById(trackId) : null) || (typeof TRACKS_DATA !== 'undefined' && TRACKS_DATA?.[0] ? TRACKS_DATA[0] : { id: 't1', name: 'Grand Prix Circuit', country: 'Germany', flag: '🇩🇪', length: 4.5, laps: 57, corners: 14, drsZones: 2, type: 'RACE', tireDegradation: 5, overtakingDifficulty: 5, rainProbability: 10, svgPath: 'M 100 100 L 600 100 L 600 500 L 100 500 Z' });
+        const schedule = Safe.getArray(career, 'schedule', []);
+        const round = Safe.getNumber(career, 'currentRound', 0);
+        const trackId = schedule[round] || schedule[0];
+        const track = (typeof getTrackById === 'function' && trackId ? getTrackById(trackId) : null) || 
+                      (typeof TRACKS_DATA !== 'undefined' && TRACKS_DATA?.[0] ? TRACKS_DATA[0] : 
+                      { id: 't1', name: 'Grand Prix Circuit', country: 'Germany', flag: '🇩🇪', length: 4.5, laps: 57, corners: 14, drsZones: 2, type: 'RACE', tireDegradation: 5, overtakingDifficulty: 5, rainProbability: 10, svgPath: 'M 100 100 L 600 100 L 600 500 L 100 500 Z' });
 
         switch (currentStage) {
             case 'intro':

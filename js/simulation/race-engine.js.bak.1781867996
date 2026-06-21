@@ -67,7 +67,7 @@ window.RaceEngine = (() => {
         raceState.cars.forEach(car => {
             car.lapCount = 0;
             car.trackProgress = 0;
-            car.totalRaceDistance = 0;
+            car.raceDistance = 0;
             car.totalRaceTime = 0;
             car.currentLapTime = 0;
             car.lastLapTime = null;
@@ -212,15 +212,8 @@ window.RaceEngine = (() => {
                     bestLapTime: null,
                     currentLapTime: 0,
                     lapCount: 0,
-
-                    // AUTHORITATIVE TOTAL RACE DISTANCE (km)
-                    // totalRaceDistance = (lapCount * track.length) + (trackProgress * track.length)
-                    // This is the ONLY value used for leaderboard position.
-                    totalRaceDistance: 0,
-
-                    // VISUAL ONLY - used exclusively for rendering.
-                    // NEVER used for position, gaps, or ordering.
-                    trackProgress: 0,
+                    trackProgress: 0,          // VISUAL ONLY - never for ordering
+                    raceDistance: 0,           // AUTHORITATIVE: lapCount + frac progress
 
                     tireState: TireModel.createTireState(startingCompound),
                     pitStopCount: 0,
@@ -286,7 +279,7 @@ window.RaceEngine = (() => {
                 car.gridPosition = g.position;
                 car.position = g.position;
                 car.totalRaceTime = (g.position - 1) * 0.15;
-                car.totalRaceDistance = 0;
+                car.raceDistance = 0;
                 car.lapCount = 0;
                 car.trackProgress = 0;
                 car.currentLapTime = 0;
@@ -326,8 +319,7 @@ window.RaceEngine = (() => {
         raceState.cars.forEach(car => {
             car.status = 'RACING';
             // Ensure authoritative distance is set on every start
-            const trackLen = (raceState.track && raceState.track.length) || 5.0;
-            car.totalRaceDistance = (car.lapCount * trackLen) + (car.trackProgress * trackLen);
+            car.raceDistance = (car.lapCount || 0) + (car.trackProgress || 0);
         });
 
         console.log('[RaceEngine] Race started successfully');
@@ -638,14 +630,10 @@ window.RaceEngine = (() => {
     }
 
     function completeLap(car) {
-        if (!raceState || car.isPittingNow) return;
+        if (!raceState) return;
 
         car.trackProgress -= 1.0;
         car.lapCount++;
-
-        // CRITICAL: After crossing the line, total distance must increase by full lap length
-        const trackLen = (raceState.track && raceState.track.length) || 5.0;
-        car.totalRaceDistance = (car.lapCount * trackLen) + (car.trackProgress * trackLen);
 
         const raceContext = {
             currentLap: car.lapCount,
@@ -972,17 +960,12 @@ window.RaceEngine = (() => {
     }
 
     /**
-     * DEFINITIVE POSITION CALCULATION (TOTAL RACE DISTANCE MODEL)
-     *
-     * totalRaceDistance (km) = (lapCount * track.length) + (trackProgress * track.length)
-     *
-     * Sorting order (highest first):
-     *   1. totalRaceDistance (primary - includes full laps)
-     *   2. totalRaceTime     (tie-breaker)
-     *   3. gridPosition      (final tie-breaker)
-     *
-     * Pit cars are always ranked behind non-pitting cars.
-     * trackProgress is VISUAL ONLY and never influences position.
+     * AUTHORITATIVE POSITION CALCULATION (FIXED)
+     * - Uses raceDistance (preferred) or lapCount + progress
+     * - totalRaceTime as secondary
+     * - Grid as final tie-breaker
+     * - Pit cars are explicitly demoted (visual progress ignored)
+     * NEVER uses SVG coordinates, X/Y, path rendering, or visual track data.
      */
     function updatePositions() {
         if (!raceState) return;
@@ -994,15 +977,12 @@ window.RaceEngine = (() => {
                 if (a.isPittingNow && !b.isPittingNow) return 1;
                 if (!a.isPittingNow && b.isPittingNow) return -1;
 
-                // AUTHORITATIVE: totalRaceDistance (km)
-                // This is (laps * track.length) + (progress * track.length)
+                // Authoritative race distance
                 const getDist = (car) => {
-                    if (typeof car.totalRaceDistance === 'number' && car.totalRaceDistance >= 0) {
-                        return car.totalRaceDistance;
+                    if (typeof car.raceDistance === 'number' && car.raceDistance >= 0) {
+                        return car.raceDistance;
                     }
-                    // Fallback (should rarely be needed)
-                    const len = (raceState.track && raceState.track.length) || 5.0;
-                    return (car.lapCount * len) + (car.trackProgress * len);
+                    return car.lapCount + (car.isPittingNow ? 0 : (car.trackProgress || 0));
                 };
 
                 const distA = getDist(a);
@@ -1032,17 +1012,6 @@ window.RaceEngine = (() => {
         });
 
         raceState.cars.sort((a, b) => a.position - b.position);
-
-
-        // === LEADER-RELATIVE GAP SYSTEM (distance based) ===
-        const leader = sortedCars[0];
-        if (leader) {
-            sortedCars.forEach(car => {
-                car.gapToLeader = leader.totalRaceDistance - car.totalRaceDistance;
-                car.gapToLeader = Math.max(0, car.gapToLeader);
-            });
-        }
-
 
         sortedCars.forEach(car => {
             if (car.isPlayer && car.previousPosition !== car.position && car.previousPosition !== 0) {
@@ -1617,19 +1586,17 @@ window.RaceEngine = (() => {
     }
 
     
-    // === DEFINITIVE DEBUG HELPER (for leaderboard audit) ===
-    function debugRaceState(limit = 8) {
-        if (!raceState || !raceState.cars) return [];
-        const trackLen = (raceState.track && raceState.track.length) || 5.0;
+    // === DIAGNOSTIC (temporary) - remove after audit ===
+    function debugRaceState(limit = 6) {
+        if (!raceState) return [];
         return raceState.cars.slice(0, limit).map(car => ({
-            name: (car.driver?.name || car.id).padEnd(18),
+            name: car.driver?.name || car.id,
             pos: car.position,
             laps: car.lapCount,
-            intoLap: (car.trackProgress || 0).toFixed(4),
-            totalDist: (car.totalRaceDistance || 0).toFixed(4),
-            time: (car.totalRaceTime || 0).toFixed(3),
-            gap: (car.gapToLeader || 0).toFixed(4),
-            pitting: car.isPittingNow ? "PIT" : ""
+            frac: (car.trackProgress || 0).toFixed(3),
+            dist: (car.raceDistance || (car.lapCount + (car.trackProgress||0))).toFixed(3),
+            time: car.totalRaceTime.toFixed(2),
+            pitting: !!car.isPittingNow
         }));
     }
 

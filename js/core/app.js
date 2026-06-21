@@ -103,9 +103,15 @@ const App = (() => {
         if (typeof GameEngine === 'undefined') throw new Error('GameEngine not loaded');
 
         // Setup global error handler
+        if (typeof ErrorBoundary !== 'undefined') {
+            ErrorBoundary.init();
+        }
+
         window.addEventListener('error', (e) => {
             console.error('[Global Error]', e.error);
-            if (typeof Notifications !== 'undefined') {
+            if (typeof ErrorBoundary !== 'undefined') {
+                ErrorBoundary.handleError(e.error || new Error(e.message), 'app.js:global');
+            } else if (typeof Notifications !== 'undefined') {
                 Notifications.error('Something went wrong', 'Check console for details');
             }
         });
@@ -113,6 +119,9 @@ const App = (() => {
         // Setup unhandled promise rejection handler
         window.addEventListener('unhandledrejection', (e) => {
             console.error('[Unhandled Promise]', e.reason);
+            if (typeof ErrorBoundary !== 'undefined') {
+                ErrorBoundary.handleError(e.reason || new Error('Promise rejection'), 'app.js:unhandledrejection');
+            }
         });
     }
 
@@ -183,8 +192,7 @@ const App = (() => {
             { name: 'MultiplayerScreen', obj: typeof MultiplayerScreen !== 'undefined' ? MultiplayerScreen : null },
             { name: 'ProfileScreen', obj: typeof ProfileScreen !== 'undefined' ? ProfileScreen : null },
             { name: 'TutorialScreen', obj: typeof TutorialScreen !== 'undefined' ? TutorialScreen : null },
-            { name: 'TeamSetupScreen', obj: typeof TeamSetupScreen !== 'undefined' ? TeamSetupScreen : null },
-            { name: 'DashboardScreen', obj: typeof DashboardScreen !== 'undefined' ? DashboardScreen : null },
+            { name: 'TeamSetupScreen', obj: typeof TeamSetupScreen !== 'undefined' ? TeamSetupScreen : null },            { name: 'DashboardScreen', obj: typeof DashboardScreen !== 'undefined' ? DashboardScreen : null },
             { name: 'RaceWeekendScreen', obj: typeof RaceWeekendScreen !== 'undefined' ? RaceWeekendScreen : null },
             { name: 'RaceScreen', obj: typeof RaceScreen !== 'undefined' ? RaceScreen : null },
             { name: 'ResultsScreen', obj: typeof ResultsScreen !== 'undefined' ? ResultsScreen : null }
@@ -209,6 +217,18 @@ const App = (() => {
     function startEngine() {
         if (typeof GameEngine === 'undefined') return;
         GameEngine.init();
+
+        // Run startup validation (health check)
+        if (typeof StartupValidator !== 'undefined') {
+            try {
+                const health = StartupValidator.run();
+                if (!health || health.errors.length > 0) {
+                    console.warn('[App] Startup had issues but continuing with fallbacks.');
+                }
+            } catch (e) {
+                console.warn('[App] StartupValidator failed (non-fatal):', e);
+            }
+        }
     }
 
     /**

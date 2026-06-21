@@ -152,23 +152,54 @@ window.GameEngine = (() => {
     }
 
     function doScreenSwitch(screenId) {
+        console.log(`[GameEngine] Screen transition: ${previousScreen} → ${screenId}`);
+        
+        // ROUTE VALIDATION + FAILSAFE
+        const validScreens = ['home','singleplayer','multiplayer','profile','tutorial','team-setup','race-weekend','race','results','dashboard'];
+        if (!validScreens.includes(screenId)) {
+            console.error(`[GameEngine] Invalid route: ${screenId} — falling back to home`);
+            screenId = 'home';
+        }
+
         document.querySelectorAll('.game-screen').forEach(screen => {
             screen.classList.remove('active');
         });
 
         const targetScreen = document.getElementById(`screen-${screenId}`);
-        targetScreen.classList.add('active');
-        targetScreen.classList.remove('screen-exit');
-        targetScreen.classList.add('screen-enter');
+        if (!targetScreen) {
+            console.error(`[GameEngine] Screen element missing: screen-${screenId}. Falling back.`);
+            const home = document.getElementById('screen-home');
+            if (home) home.classList.add('active');
+            return;
+        }
 
-        currentScreen = screenId;
-        StateManager.set('currentScreen', screenId);
+        try {
+            targetScreen.classList.add('active');
+            targetScreen.classList.remove('screen-exit');
+            targetScreen.classList.add('screen-enter');
+
+            currentScreen = screenId;
+            StateManager.set('currentScreen', screenId);
 
         EventBus.emit('screen:changed', { screen: screenId, previous: previousScreen });
         EventBus.emit(`screen:${screenId}:enter`, { previous: previousScreen });
 
         const content = targetScreen.querySelector('.screen-content');
         if (content) content.scrollTop = 0;
+
+        // TEMP DIAGNOSTICS (remove in prod)
+        console.log(`[DIAG] Page: ${screenId} | Init: active | Render: ${targetScreen.classList.contains('active') ? 'OK' : 'PENDING'}`);
+        if (typeof window.__VELOCITY_DIAG === 'undefined') window.__VELOCITY_DIAG = [];
+        window.__VELOCITY_DIAG.push({time: Date.now(), screen: screenId, mode: StateManager.get('mode')});
+        } catch (err) {
+            console.error('[GameEngine] Screen switch render error:', err);
+            if (typeof ErrorBoundary !== 'undefined') {
+                ErrorBoundary.handleError(err, `screen:${screenId}`);
+            }
+            // Fallback UI
+            const fallback = document.getElementById('screen-home');
+            if (fallback) fallback.classList.add('active');
+        }
     }
 
     function performDiveTransition(targetScreen, color, isReverse, callback) {

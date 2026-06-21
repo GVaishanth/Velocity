@@ -89,46 +89,51 @@ window.TeamSetupScreen = (() => {
     /**
      * STEP 1: Team Selection
      */
-    function renderTeamStep() {
-        return `
-            <div style="text-align: center; margin-bottom: var(--space-xl);">
-                <p style="color: var(--gray-400); letter-spacing: 2px;">Choose your constructor</p>
-            </div>
-
-            <div class="team-grid">
-                ${(setupShuffledTeams || TEAMS_DATA).map(team => {
-                    const isSelected = selection.team?.id === team.id;
-                    return `
-                        <div class="team-select-card ${isSelected ? 'selected' : ''}"
-                             data-team-id="${team.id}">
-                            <div class="team-select-logo" style="background: ${team.color}">
-                                ${team.shortName}
-                            </div>
-                            <div class="team-select-name">${escapeHTML(team.name)}</div>
-                            <div class="team-select-country">${team.flag} ${escapeHTML(team.country)}</div>
-                            <div class="team-select-stats">
-                                <div class="team-stat-row">
-                                    <span class="team-stat-label">Reputation</span>
-                                    <span class="team-stat-value">${team.reputation}</span>
-                                </div>
-                                <div class="team-stat-row">
-                                    <span class="team-stat-label">Fans</span>
-                                    <span class="team-stat-value">${team.fanPopularity}</span>
-                                </div>
-                                <div class="team-stat-row">
-                                    <span class="team-stat-label">Overall</span>
-                                    <span class="team-stat-value">${getTeamOverall(team)}</span>
-                                </div>
-                            </div>
+        function renderTeamStep() {
+        const teams = (setupShuffledTeams || (typeof TEAMS_DATA !== "undefined" ? TEAMS_DATA : []));
+        let gridHtml = "";
+        teams.forEach(team => {
+            const isSelected = selection.team && selection.team.id === team.id;
+            const overall = (typeof getTeamOverall === "function") ? getTeamOverall(team) : (team.reputation || 75);
+            gridHtml += `
+                <div class=\"team-select-card ${isSelected ? "selected" : ""}\"
+                     data-team-id=\"${team.id}\">
+                    <div class=\"team-select-logo\" style=\"background: ${team.color || "#555"}\">
+                        ${team.shortName || (team.name ? team.name.slice(0,3) : "T")}
+                    </div>
+                    <div class=\"team-select-name\">${escapeHTML(team.name || "Unknown")}</div>
+                    <div class=\"team-select-country\">${team.flag || ""} ${escapeHTML(team.country || "")}</div>
+                    <div class=\"team-select-stats\">
+                        <div class=\"team-stat-row\">
+                            <span class=\"team-stat-label\">Reputation</span>
+                            <span class=\"team-stat-value\">${team.reputation || 75}</span>
                         </div>
-                    `;
-                }).join('')}
+                        <div class=\"team-stat-row\">
+                            <span class=\"team-stat-label\">Fans</span>
+                            <span class=\"team-stat-value\">${team.fanPopularity || 70}</span>
+                        </div>
+                        <div class=\"team-stat-row\">
+                            <span class=\"team-stat-label\">Overall</span>
+                            <span class=\"team-stat-value\">${overall}</span>
+                        </div>
+                    </div>
+                </div>
+            `;
+        });
+
+        return `
+            <div style=\"text-align: center; margin-bottom: var(--space-xl);\">
+                <p style=\"color: var(--gray-400); letter-spacing: 2px;\">Choose your constructor</p>
             </div>
 
-            <div style="display: flex; justify-content: space-between; margin-top: var(--space-xl);">
-                <button class="btn" id="ts-back-home">← BACK</button>
-                <button class="btn btn-primary" id="ts-next-step"
-                    ${!selection.team ? 'disabled' : ''}>
+            <div class=\"team-grid\">
+                ${gridHtml}
+            </div>
+
+            <div style=\"display: flex; justify-content: space-between; margin-top: var(--space-xl);\">
+                <button class=\"btn\" id=\"ts-back-home\">← BACK</button>
+                <button class=\"btn btn-primary\" id=\"ts-next-step\"
+                    ${!selection.team ? "disabled" : ""}>
                     NEXT: HIRE DRIVERS →
                 </button>
             </div>
@@ -605,14 +610,35 @@ window.TeamSetupScreen = (() => {
             return;
         }
 
-        // Initialize career
-        const settings = StateManager.get('settings') || {};
-        StateManager.initCareer(selection.team, selection.drivers, selection.staff, {
-            seasonLength: settings.seasonLength || 10,
-            difficulty: settings.difficulty || 'COMPETITIVE'
-        });
+        // Initialize career - safe call
+        try {
+            const settings = (typeof StateManager !== 'undefined' && StateManager.get) ? (StateManager.get('settings') || {}) : {};
+            StateManager.initCareer(selection.team, selection.drivers, selection.staff, {
+                seasonLength: settings.seasonLength || 10,
+                difficulty: settings.difficulty || 'COMPETITIVE'
+            });
+        } catch (e) {
+            console.error('[TeamSetup] initCareer failed, using fallback:', e);
+            // Fallback: directly set minimal career
+            const fallbackCareer = {
+                team: selection.team,
+                drivers: selection.drivers,
+                staff: selection.staff,
+                budget: remainingBudget,
+                season: 1,
+                currentRound: 0,
+                totalRounds: 10,
+                schedule: (typeof TRACKS_DATA !== 'undefined' ? TRACKS_DATA.slice(0,10).map(t=>t.id) : []),
+                carStats: selection.team.baseCarStats || {},
+                championship: { driverStandings: [], constructorStandings: [] },
+                allTeams: [],
+                raceHistory: []
+            };
+            StateManager.set('career', fallbackCareer);
+            StateManager.set('mode', 'CAREER');
+        }
 
-        Notifications.success('Team registered!', `Welcome to ${selection.team.name}`);
+        Notifications.success('Team registered!', `Welcome to ${selection.team.name || 'Team'}`);
 
         // Navigate to dashboard
         setTimeout(() => {

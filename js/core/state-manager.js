@@ -142,6 +142,20 @@ window.StateManager = (() => {
      * Initialize a new career
      */
     function initCareer(teamData, drivers, staff, settings, mpOptions = null) {
+        // DEFENSIVE: Use Safe wrappers and defaults
+        teamData = Safe.ensureObject(teamData);
+        drivers = Safe.ensureArray(drivers);
+        staff = Safe.ensureObject(staff);
+        settings = Safe.ensureObject(settings);
+
+        if (!teamData.id || !teamData.name) {
+            console.warn('[StateManager] initCareer: Invalid teamData, using fallback');
+            teamData = (typeof TEAMS_DATA !== 'undefined' && TEAMS_DATA[0]) || { id: 'novara', name: 'Novara Racing', shortName: 'NOV', color: '#00FF41', baseCarStats: { aero: 70, power: 70, reliability: 70, tireMgmt: 70, cooling: 70, grip: 70 } };
+        }
+        if (drivers.length < 1) {
+            drivers = (typeof DRIVERS_DATA !== 'undefined' ? [DRIVERS_DATA[0], DRIVERS_DATA[1]] : []);
+        }
+
         const allTeams = generateAllTeams(teamData, drivers, mpOptions);
 
         const career = {
@@ -151,9 +165,9 @@ window.StateManager = (() => {
             budget: 100000000 - calculateTotalCost(drivers, staff),
             season: 1,
             currentRound: 0,
-            totalRounds: settings.seasonLength || 10,
-            schedule: (mpOptions && mpOptions.masterSchedule) ? mpOptions.masterSchedule : generateSchedule(settings.seasonLength || 10),
-            carStats: { ...teamData.baseCarStats },
+            totalRounds: Safe.getNumber(settings, 'seasonLength', 10),
+            schedule: (mpOptions && mpOptions.masterSchedule) ? mpOptions.masterSchedule : generateSchedule(Safe.getNumber(settings, 'seasonLength', 10)),
+            carStats: { ...(teamData.baseCarStats || { aero: 70, power: 70, reliability: 70, tireMgmt: 70, cooling: 70, grip: 70 }) },
             lastUpgradedPart: null,
             livery: {
                 primary: teamData.color || '#FFFFFF',
@@ -270,12 +284,18 @@ window.StateManager = (() => {
         return allTeams;
     }
 
-    /**
+    /** 
      * Generate a race calendar (random tracks)
+     * ROBUST: always returns valid track IDs
      */
     function generateSchedule(numRaces) {
+        if (typeof TRACKS_DATA === 'undefined' || !Array.isArray(TRACKS_DATA) || TRACKS_DATA.length === 0) {
+            // Fallback hardcoded safe IDs (matches real data)
+            const fallback = ['bahrain','jeddah','melbourne','suzuka','shanghai','miami','imola','monaco','barcelona','montreal'];
+            return fallback.slice(0, numRaces || 10);
+        }
         const shuffled = [...TRACKS_DATA].sort(() => Math.random() - 0.5);
-        return shuffled.slice(0, numRaces).map(t => t.id);
+        return shuffled.slice(0, Math.max(1, numRaces || 10)).map(t => t.id);
     }
 
     /**

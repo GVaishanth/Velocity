@@ -27,8 +27,12 @@ window.SinglePlayerScreen = (() => {
 
         // --- ISOLATED SAVE CHECK ---
         // We only care about single-player saves here.
-        let hasSave = SaveSystem.exists('gamestate');
-        let saveData = hasSave ? SaveSystem.load('gamestate') : null;
+        let hasSave = false;
+        let saveData = null;
+        try {
+            hasSave = typeof SaveSystem !== 'undefined' && SaveSystem.exists && SaveSystem.exists('gamestate');
+            saveData = hasSave && SaveSystem.load ? SaveSystem.load('gamestate') : null;
+        } catch(e) { console.warn('[SinglePlayer] Save check failed', e); }
         
         // If the save file is actually a multiplayer session (legacy bug), ignore it
         if (saveData && saveData.career?.isMultiplayer) {
@@ -36,7 +40,7 @@ window.SinglePlayerScreen = (() => {
             saveData = null;
         }
 
-        const saveMeta = hasSave ? SaveSystem.getMeta('gamestate') : null;
+        const saveMeta = hasSave && SaveSystem.getMeta ? SaveSystem.getMeta('gamestate') : null;
 
         container.innerHTML = `
             <div class="sp-container">
@@ -266,7 +270,7 @@ window.SinglePlayerScreen = (() => {
         if (typeof AudioManager !== 'undefined') AudioManager.uiClick();
 
         let playerTeamId = 'novara';
-        let trackId = 'interlagos_senna';
+        let trackId = 'interlagos';
         let totalLaps = 8;
         let startLap = 3;
         let status = 'GREEN';
@@ -282,7 +286,7 @@ window.SinglePlayerScreen = (() => {
 
         if (scenarioId === 'abu_dhabi_shootout') {
             playerTeamId = 'invicta';
-            trackId = 'sunset_boulevard';
+            trackId = 'yas_marina';
             totalLaps = 6;
             startLap = 4;
             status = 'SAFETY_CAR';
@@ -296,7 +300,7 @@ window.SinglePlayerScreen = (() => {
             name = 'The Abu Dhabi Shootout';
         } else if (scenarioId === 'monaco_defense') {
             playerTeamId = 'veloce';
-            trackId = 'crimson_bay';
+            trackId = 'monaco';
             totalLaps = 8;
             startLap = 0;
             status = 'GREEN';
@@ -545,11 +549,11 @@ window.SinglePlayerScreen = (() => {
                     <div class="form-group">
                         <label class="form-label">Track</label>
                         <select class="select" id="quick-track-select">
-                            <option value="random">🎲 Random Track</option>
-                            ${TRACKS_DATA.map(t => `
-                                <option value="${t.id}">${t.flag} ${t.name}</option>
-                            `).join('')}
-                        </select>
+                                <option value="random">🎲 Random Track</option>
+                                ${TRACKS_DATA.map(t => `
+                                    <option value="${t.id}">${t.flag} ${t.name}</option>
+                                `).join('')}
+                            </select>
                     </div>
 
                     <div class="form-group">

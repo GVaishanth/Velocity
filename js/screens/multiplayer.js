@@ -802,7 +802,7 @@ window.OnlineManager = (() => {
         }
 
         // Definitive Master Schedule generation — Forces perfect track synchronization using 100% valid universe IDs
-        masterSchedule = typeof TRACKS_DATA !== 'undefined' ? [...TRACKS_DATA].map(t => t.id).sort(() => Math.random() - 0.5).slice(0, matchSettings.races || 5) : ['royal_park', 'crimson_bay', 'mountain_pass', 'ocean_drive', 'northern_lights'].slice(0, matchSettings.races || 5);
+        masterSchedule = typeof TRACKS_DATA !== 'undefined' ? [...TRACKS_DATA].map(t => t.id).sort(() => Math.random() - 0.5).slice(0, matchSettings.races || 5) : ['monaco','silverstone','monza','spa','suzuka'].slice(0, matchSettings.races || 5);
         matchStarted = true;
 
         const startPackage = {
@@ -899,15 +899,16 @@ window.OnlineManager = (() => {
         StateManager.initCareer(localTeam, localDrivers, localStaff, careerSettings, mpOptions);
         StateManager.update('settings', { raceSpeed: settings.speed || 2, difficulty: settings.difficulty || 'COMPETITIVE' });
 
-        const career = StateManager.get('career');
-        if (career && career.schedule?.[0]) {
-            const trackId = career.schedule[0];
+        const career = Safe.get(StateManager, 'get') ? StateManager.get('career') : null;
+        if (career && Safe.getArray(career, 'schedule', []).length > 0) {
+            const schedule = Safe.getArray(career, 'schedule', []);
+            const trackId = schedule[0];
             const track = typeof getTrackById === 'function' ? getTrackById(trackId) : (typeof TRACKS_DATA !== 'undefined' ? TRACKS_DATA[0] : { id: 't1', name: 'Track', laps: 57, baseLapTime: 90 });
             
             StateManager.set('race', {
                 track: track,
-                allTeams: career.allTeams,
-                playerTeamId: career.team?.id || localTeam?.id,
+                allTeams: Safe.getArray(career, 'allTeams', []),
+                playerTeamId: Safe.get(career, 'team.id') || (localTeam && localTeam.id) || null,
                 difficulty: career.difficulty || 'COMPETITIVE',
                 speed: settings.speed || 2,
                 strategy: { startingTire: 'MEDIUM', pitStops: 2, aggression: 5 },

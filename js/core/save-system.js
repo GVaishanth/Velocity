@@ -57,11 +57,62 @@ window.SaveSystem = (() => {
                 return migrateData(wrapper);
             }
 
-            return wrapper.data;
+            const data = wrapper.data;
+
+            // DEEP CAREER VALIDATION + AUTO-REPAIR (prevents black screens on bad saves)
+            if (key === 'gamestate' && data && data.career) {
+                data.career = validateAndRepairCareer(data.career);
+            }
+
+            return data;
         } catch (err) {
             console.error('[SaveSystem] Load failed:', err);
             return null;
         }
+    }
+
+    function validateAndRepairCareer(career) {
+        if (!career || typeof career !== 'object') return null;
+
+        const repaired = { ...career };
+
+        // Core required fields with defaults
+        repaired.team = career.team || { id: 'novara', name: 'Novara Racing', shortName: 'NOV', color: '#00FF41' };
+        repaired.drivers = Array.isArray(career.drivers) && career.drivers.length >= 1 ? career.drivers : [];
+        repaired.staff = career.staff || {};
+        repaired.budget = typeof career.budget === 'number' ? career.budget : 100000000;
+        repaired.season = career.season || 1;
+        repaired.currentRound = typeof career.currentRound === 'number' ? career.currentRound : 0;
+        repaired.totalRounds = career.totalRounds || 10;
+        repaired.schedule = Array.isArray(career.schedule) && career.schedule.length > 0 ? career.schedule : [];
+        repaired.carStats = career.carStats || { aero: 70, power: 70, reliability: 70, tireMgmt: 70, cooling: 70, grip: 70 };
+        repaired.championship = career.championship || { driverStandings: [], constructorStandings: [] };
+        repaired.allTeams = Array.isArray(career.allTeams) && career.allTeams.length > 0 ? career.allTeams : [];
+        repaired.raceHistory = Array.isArray(career.raceHistory) ? career.raceHistory : [];
+        repaired.isMultiplayer = !!career.isMultiplayer;
+
+        // Ensure schedule is valid track IDs (fallback to first tracks if empty)
+        if (repaired.schedule.length === 0 && typeof TRACKS_DATA !== 'undefined') {
+            repaired.schedule = TRACKS_DATA.slice(0, repaired.totalRounds).map(t => t.id);
+        }
+
+        // Ensure championship standings exist
+        if (!repaired.championship.driverStandings || !Array.isArray(repaired.championship.driverStandings)) {
+            repaired.championship.driverStandings = [];
+        }
+        if (!repaired.championship.constructorStandings || !Array.isArray(repaired.championship.constructorStandings)) {
+            repaired.championship.constructorStandings = [];
+        }
+
+        // Ensure allTeams have drivers
+        if (repaired.allTeams.length > 0) {
+            repaired.allTeams = repaired.allTeams.map(t => ({
+                ...t,
+                drivers: Array.isArray(t.drivers) ? t.drivers : []
+            }));
+        }
+
+        return repaired;
     }
 
     /**

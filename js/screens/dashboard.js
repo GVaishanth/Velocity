@@ -17,7 +17,7 @@ window.DashboardScreen = (() => {
 
     function render() {
         if (!container) return;
-        const career = StateManager.get('career');
+        const career = Safe.get(StateManager, 'get') ? StateManager.get('career') : null;
 
         if (!career) {
             container.innerHTML = `
@@ -32,22 +32,68 @@ window.DashboardScreen = (() => {
             return;
         }
 
-        const nextTrackId = career.schedule[career.currentRound];
-        const nextTrack = nextTrackId ? getTrackById(nextTrackId) : null;
-        const isSeasonComplete = career.currentRound >= career.totalRounds;
+        // Defensive deep copies / fallbacks
+        const safeCareer = {
+            ...career,
+            schedule: Safe.getArray(career, 'schedule', []),
+            drivers: Safe.getArray(career, 'drivers', []),
+            allTeams: Safe.getArray(career, 'allTeams', []),
+            championship: Safe.ensureObject(career.championship),
+            carStats: Safe.ensureObject(career.carStats),
+            team: Safe.ensureObject(career.team)
+        };
 
-        const playerDriverStandings = career.championship.driverStandings
-            .filter(d => d.teamId === career.team.id)
+        // ROBUST schedule handling (fixes "no upcoming races")
+        let scheduleArr = Safe.getArray(safeCareer, 'schedule', []);
+        let roundIdx = Safe.getNumber(safeCareer, 'currentRound', 0);
+
+        // Auto-repair empty/invalid schedule (very common after new career or corrupt load)
+        if (!Array.isArray(scheduleArr) || scheduleArr.length === 0) {
+            if (typeof TRACKS_DATA !== 'undefined' && TRACKS_DATA.length > 0) {
+                const num = Math.max(1, safeCareer.totalRounds || 10);
+                scheduleArr = TRACKS_DATA.slice(0, num).map(t => t.id);
+            } else {
+                scheduleArr = ['bahrain','jeddah','melbourne','suzuka','shanghai','miami','imola','monaco','barcelona','montreal'];
+            }
+            safeCareer.schedule = scheduleArr;
+
+            // IMPORTANT: Repair the live career object so templates + calendar use it
+            if (career) {
+                career.schedule = scheduleArr;
+                try {
+                    if (typeof StateManager !== 'undefined' && StateManager.set) {
+                        StateManager.set('career', career);
+                    }
+                } catch(e){}
+            }
+        }
+
+        roundIdx = Math.max(0, Math.min(roundIdx, Math.max(0, scheduleArr.length - 1)));
+        const nextTrackId = scheduleArr[roundIdx] || scheduleArr[0];
+        let nextTrack = null;
+        if (nextTrackId && typeof getTrackById === 'function') {
+            nextTrack = getTrackById(nextTrackId);
+        }
+        // Final safety: if still no track but we have schedule, force first valid track
+        if (!nextTrack && scheduleArr.length > 0 && typeof getTrackById === 'function') {
+            for (let i = 0; i < scheduleArr.length; i++) {
+                const t = getTrackById(scheduleArr[i]);
+                if (t) { nextTrack = t; break; }
+            }
+        }
+        const isSeasonComplete = Safe.getNumber(safeCareer, 'currentRound', 0) >= Safe.getNumber(safeCareer, 'totalRounds', 1);
+
+        const playerDriverStandings = Safe.safeFilter(Safe.getArray(safeCareer.championship, 'driverStandings', []), d => d.teamId === Safe.get(safeCareer, 'team.id'))
             .map(d => ({
                 ...d,
-                position: [...career.championship.driverStandings]
-                    .sort((a, b) => b.points - a.points)
+                position: Safe.safeFilter(Safe.getArray(safeCareer.championship, 'driverStandings', []), x => true)
+                    .sort((a, b) => (b.points || 0) - (a.points || 0))
                     .findIndex(x => x.driverId === d.driverId) + 1
             }));
 
-        const playerConstructorPos = [...career.championship.constructorStandings]
-            .sort((a, b) => b.points - a.points)
-            .findIndex(c => c.teamId === career.team.id) + 1;
+        const playerConstructorPos = Safe.safeFilter(Safe.getArray(safeCareer.championship, 'constructorStandings', []), c => true)
+            .sort((a, b) => (b.points || 0) - (a.points || 0))
+            .findIndex(c => c.teamId === Safe.get(safeCareer, 'team.id')) + 1;
 
         container.innerHTML = `
             <div class="dashboard-container">
