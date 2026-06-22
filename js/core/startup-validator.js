@@ -61,6 +61,9 @@ window.StartupValidator = (() => {
             ['loadBackup', 'autoSave', 'validateAndRepairSaveData', 'validateAndRepairRace'].forEach(method => {
                 if (typeof SaveSystem[method] !== 'function') throw new Error(`SaveSystem.${method} missing`);
             });
+            if (typeof StorageCleanupService === 'undefined' || typeof StorageCleanupService.getStorageReport !== 'function') {
+                throw new Error('StorageCleanupService missing');
+            }
             console.log('  ✓ SaveSystem');
         } catch (e) { results.errors.push('Save: ' + e.message); }
 
@@ -134,6 +137,26 @@ window.StartupValidator = (() => {
                 'createNextSeasonCalendar', 'generateNextSeason', 'ensureCareerCalendar',
                 'applyCalendar', 'saveCalendar', 'loadCalendar', 'advanceRound',
                 'getCareerCalendar', 'getNextRace', 'isSeasonComplete', 'normalizeTrackIds', 'getTrack'
+            ],
+            DriverDevelopmentService: [
+                'ensureDriverDevelopment', 'developDriver', 'processSeasonEnd',
+                'generateRookie', 'updateRetirementRisk', 'retireDriver'
+            ],
+            ContractService: [
+                'ensureCareerContracts', 'processSeasonEnd', 'renewDriver', 'renewStaff',
+                'releaseDriver', 'withDriverContract', 'withStaffContract', 'annualPersonnelCost'
+            ],
+            AcademyService: [
+                'generateYouthDriver', 'ensureCareerAcademies', 'scoutRegion', 'signProspect',
+                'processSeasonEnd', 'promoteToReserve', 'promoteToMainTeam', 'releaseAcademyDriver'
+            ],
+            FacilityService: [
+                'ensureCareerFacilities', 'requestUpgrade', 'processConstruction', 'processAI',
+                'processSeasonEnd', 'calculateBenefits', 'upgradeCost', 'upgradeWeeks', 'maintenanceCost'
+            ],
+            SponsorService: [
+                'ensureSponsors', 'createOffer', 'acceptOffer', 'rejectOffer', 'counterOffer',
+                'terminateContract', 'evaluateRace', 'updateReputation', 'processSeasonEnd', 'processAI'
             ],
             RaceInitializer: [
                 'initializeRace', 'initializeCareerRace',

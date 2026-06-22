@@ -95,6 +95,7 @@ window.HomeController = (() => {
 
         const profile = StateManager.get('profile');
         const settings = StateManager.get('settings') || {};
+        const storageReport = (typeof StorageCleanupService !== 'undefined') ? StorageCleanupService.getStorageReport() : null;
 
         Modals.open({
             title: 'Settings',
@@ -165,6 +166,21 @@ window.HomeController = (() => {
                     <div class="divider"></div>
 
                     <div class="form-group">
+                        <label class="form-label">Storage Usage</label>
+                        <div style="background: var(--surface-1); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 8px;">
+                            <div style="display: flex; justify-content: space-between; font-family: Orbitron; font-size: 12px; font-weight: 800;">
+                                <span>${storageReport ? `${storageReport.usedPercent}% Used` : 'Unavailable'}</span>
+                                <span>${storageReport ? `${storageReport.usedKB}KB / ${storageReport.maxKB}KB` : ''}</span>
+                            </div>
+                            <div style="height: 8px; background: rgba(255,255,255,0.08); border-radius: 8px; overflow: hidden;">
+                                <div id="storage-usage-fill" style="height: 100%; width: ${storageReport ? storageReport.usedPercent : 0}%; background: ${storageReport && storageReport.usedPercent > 90 ? 'var(--red)' : storageReport && storageReport.usedPercent > 75 ? '#FFD700' : 'var(--green)'};"></div>
+                            </div>
+                            <button class="btn btn-glow btn-full" id="btn-clean-storage" style="font-family: Orbitron; font-weight: 900;">Clean Storage</button>
+                            <div id="storage-clean-result" style="font-family: Rajdhani; font-size: 12px; color: var(--gray-400);">Preserves achievements, careers, HQ, academy, contracts, profile, and settings.</div>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
                         <button class="btn btn-danger btn-full" id="btn-clear-saves">
                             Clear All Saves
                         </button>
@@ -188,6 +204,18 @@ window.HomeController = (() => {
                 });
                 document.getElementById('settings-sfx-toggle')?.addEventListener('click', (e) => {
                     e.target.classList.toggle('active');
+                });
+
+                document.getElementById('btn-clean-storage')?.addEventListener('click', () => {
+                    if (typeof StorageCleanupService === 'undefined') return;
+                    const before = StorageCleanupService.getStorageReport();
+                    const result = StorageCleanupService.cleanup({ aggressive: before.usedPercent >= 90 });
+                    const after = StorageCleanupService.getStorageReport();
+                    const el = document.getElementById('storage-clean-result');
+                    if (el) el.textContent = `Storage cleaned: ${result.itemsRemoved} items removed, ~${result.kbSavedApprox}KB saved. Usage ${before.usedPercent}% → ${after.usedPercent}%.`;
+                    const fill = document.getElementById('storage-usage-fill');
+                    if (fill) fill.style.width = `${after.usedPercent}%`;
+                    if (typeof Notifications !== 'undefined') Notifications.success('Storage Cleaned', `${result.itemsRemoved} items removed • ~${result.kbSavedApprox}KB saved`);
                 });
 
                 document.getElementById('btn-clear-saves')?.addEventListener('click', () => {

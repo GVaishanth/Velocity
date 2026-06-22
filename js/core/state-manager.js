@@ -156,7 +156,14 @@ window.StateManager = (() => {
             drivers = (typeof DRIVERS_DATA !== 'undefined' ? [DRIVERS_DATA[0], DRIVERS_DATA[1]] : []);
         }
 
-        const allTeams = generateAllTeams(teamData, drivers, mpOptions);
+        let allTeams = generateAllTeams(teamData, drivers, mpOptions);
+        drivers = (typeof ContractService !== 'undefined') ? drivers.map(d => ContractService.withDriverContract(d, teamData.id)) : drivers;
+        staff = (typeof ContractService !== 'undefined') ? {
+            techDirector: ContractService.withStaffContract(staff.techDirector, teamData.id, 'techDirector'),
+            strategist: ContractService.withStaffContract(staff.strategist, teamData.id, 'strategist'),
+            pitCrew: ContractService.withStaffContract(staff.pitCrew, teamData.id, 'pitCrew')
+        } : staff;
+        allTeams = (typeof ContractService !== 'undefined') ? allTeams.map(t => ContractService.ensureTeamContracts(t, t.id === teamData.id ? staff : t.staff)) : allTeams;
 
         // Single authoritative calendar source. Custom/selected calendars are preserved exactly.
         const providedCalendar = settings.selectedTrackIds || settings.selectedTracks || settings.customCalendar || settings.seasonCalendar || mpOptions?.masterSchedule;
@@ -211,6 +218,23 @@ window.StateManager = (() => {
             });
         }
 
+        if (typeof DriverDevelopmentService !== 'undefined') {
+            career.drivers.forEach(d => DriverDevelopmentService.ensureDriverDevelopment(d));
+            career.allTeams.forEach(t => (t.drivers || []).forEach(d => DriverDevelopmentService.ensureDriverDevelopment(d)));
+        }
+        if (typeof AcademyService !== 'undefined') {
+            AcademyService.ensureCareerAcademies(career);
+        }
+        if (typeof FacilityService !== 'undefined') {
+            FacilityService.ensureCareerFacilities(career);
+        }
+        if (typeof SponsorService !== 'undefined') {
+            SponsorService.ensureSponsors(career);
+        }
+        if (typeof ContractService !== 'undefined') {
+            ContractService.ensureCareerContracts(career);
+        }
+
         // Initialize championship standings
         career.championship = initChampionshipStandings(allTeams);
 
@@ -248,6 +272,7 @@ window.StateManager = (() => {
                     isLocalPlayer: true,
                     onlineUsername: onlinePlayer ? onlinePlayer.username : 'You',
                     drivers: playerDrivers,
+                    staff: {},
                     carStats: { ...team.baseCarStats }
                 });
             } else if (onlinePlayer) {
@@ -259,6 +284,7 @@ window.StateManager = (() => {
                     remoteUsername: onlinePlayer.username,
                     onlineUsername: onlinePlayer.username,
                     drivers: onlinePlayer.drivers,
+                    staff: onlinePlayer.staff || {},
                     carStats: { ...team.baseCarStats }
                 });
             } else if (mpOptions && team.id === mpOptions.remoteTeam?.id) {
@@ -269,6 +295,7 @@ window.StateManager = (() => {
                     isRemotePlayer: true,
                     remoteUsername: mpOptions.remoteUsername,
                     drivers: mpOptions.remoteDrivers,
+                    staff: mpOptions.remoteStaff || {},
                     carStats: { ...team.baseCarStats }
                 });
             } else {
@@ -288,6 +315,7 @@ window.StateManager = (() => {
                     ...team,
                     isPlayer: false,
                     drivers: aiDrivers,
+                    staff: (typeof autoAssignStaff === 'function') ? autoAssignStaff(team.reputation || team.fanPopularity || 75) : {},
                     carStats: { ...team.baseCarStats }
                 });
             }

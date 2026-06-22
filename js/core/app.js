@@ -193,6 +193,7 @@ const App = (() => {
             { name: 'ProfileScreen', obj: typeof ProfileScreen !== 'undefined' ? ProfileScreen : null },
             { name: 'TutorialScreen', obj: typeof TutorialScreen !== 'undefined' ? TutorialScreen : null },
             { name: 'TeamSetupScreen', obj: typeof TeamSetupScreen !== 'undefined' ? TeamSetupScreen : null },            { name: 'DashboardScreen', obj: typeof DashboardScreen !== 'undefined' ? DashboardScreen : null },
+            { name: 'HeadquartersScreen', obj: typeof HeadquartersScreen !== 'undefined' ? HeadquartersScreen : null },
             { name: 'RaceWeekendScreen', obj: typeof RaceWeekendScreen !== 'undefined' ? RaceWeekendScreen : null },
             { name: 'RaceScreen', obj: typeof RaceScreen !== 'undefined' ? RaceScreen : null },
             { name: 'ResultsScreen', obj: typeof ResultsScreen !== 'undefined' ? ResultsScreen : null }
@@ -238,6 +239,11 @@ const App = (() => {
         // Initialize home controller (which handles the visual home page)
         if (typeof HomeController !== 'undefined') {
             HomeController.autoInit();
+        }
+
+        // Run non-destructive storage cleanup if usage is high
+        if (typeof StorageCleanupService !== 'undefined') {
+            try { StorageCleanupService.autoCleanupIfNeeded(); } catch(e) { console.warn('[App] Storage cleanup check failed:', e); }
         }
 
         // Setup global navigation listeners

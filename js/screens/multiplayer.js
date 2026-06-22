@@ -482,6 +482,12 @@ window.OnlineManager = (() => {
                 triggerRender();
             } else if (data.type === 'LIVERY_UPDATE') {
                 handleLiveryUpdate(conn.peer, data.livery);
+            } else if (data.type === 'CONTRACT_SYNC' || data.type === 'FACILITY_SYNC' || data.type === 'SPONSOR_SYNC') {
+                if (data.career) {
+                    StateManager.set('career', data.career);
+                    if (isHost) broadcastAction(data.type, { career: data.career });
+                    triggerRender();
+                }
             } else if (data.type === 'LIVE_ACTION') {
                 // Relaying live action across the massive worldwide grid
                 handleRemoteLiveAction(data.payload);
@@ -674,6 +680,12 @@ window.OnlineManager = (() => {
                 handlePauseRequest(data.requesterId);
             } else if (data.type === 'LIVERY_UPDATE') {
                 handleLiveryUpdate(data.connectionId || conn.peer, data.livery);
+            } else if (data.type === 'CONTRACT_SYNC' || data.type === 'FACILITY_SYNC' || data.type === 'SPONSOR_SYNC') {
+                if (data.career) {
+                    StateManager.set('career', data.career);
+                    triggerRender();
+                    if (typeof DashboardScreen !== 'undefined' && DashboardScreen.isPageActive()) DashboardScreen.render();
+                }
             } else if (data.type === 'NAV_STAGE') {
                 handleNavStage(data.stage);
             } else if (data.type === 'RACE_EVENT') {

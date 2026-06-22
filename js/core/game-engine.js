@@ -155,7 +155,7 @@ window.GameEngine = (() => {
         console.log(`[GameEngine] Screen transition: ${previousScreen} → ${screenId}`);
         
         // ROUTE VALIDATION + FAILSAFE
-        const validScreens = ['home','singleplayer','multiplayer','profile','tutorial','team-setup','race-weekend','race','results','dashboard'];
+        const validScreens = ['home','singleplayer','multiplayer','profile','tutorial','team-setup','race-weekend','race','results','dashboard','headquarters'];
         if (!validScreens.includes(screenId)) {
             console.error(`[GameEngine] Invalid route: ${screenId} — falling back to home`);
             screenId = 'home';
@@ -261,6 +261,7 @@ window.GameEngine = (() => {
             singleplayer: '#00FF41',
             'team-setup': '#00FF41',
             dashboard: '#00FF41',
+            headquarters: '#FFD700',
             'race-weekend': '#00FF41',
             race: '#00FF41',
             results: '#00FF41',

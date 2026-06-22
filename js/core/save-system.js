@@ -48,6 +48,7 @@ window.SaveSystem = (() => {
      */
     function save(key, data) {
         try {
+            if (typeof StorageCleanupService !== 'undefined') StorageCleanupService.autoCleanupIfNeeded();
             const storageKey = SAVE_PREFIX + key;
             const existing = localStorage.getItem(storageKey);
             if (existing) {
@@ -71,8 +72,17 @@ window.SaveSystem = (() => {
             console.error('[SaveSystem] Save failed:', err);
             // Likely storage full
             if (err.name === 'QuotaExceededError') {
+                try {
+                    if (typeof StorageCleanupService !== 'undefined') {
+                        StorageCleanupService.cleanup({ aggressive: true, reason: 'quota-exceeded' });
+                        const serializableData = JSON.parse(JSON.stringify(data));
+                        const wrapper = { version: SAVE_VERSION, timestamp: Date.now(), key, checksum: checksum(serializableData), data: serializableData };
+                        localStorage.setItem(SAVE_PREFIX + key, JSON.stringify(wrapper));
+                        return true;
+                    }
+                } catch(retryErr) { console.error('[SaveSystem] Save retry after cleanup failed:', retryErr); }
                 EventBus.emit('ui:notify', {
-                    message: 'Storage full! Clear old saves.',
+                    message: 'Storage full! Automatic cleanup could not free enough space.',
                     type: 'error'
                 });
             }
@@ -217,8 +227,26 @@ window.SaveSystem = (() => {
         if (repaired.allTeams.length > 0) {
             repaired.allTeams = repaired.allTeams.map(t => ({
                 ...t,
-                drivers: Array.isArray(t.drivers) ? t.drivers : []
+                drivers: Array.isArray(t.drivers) ? t.drivers : [],
+                staff: t.staff || {}
             }));
+        }
+
+        if (typeof DriverDevelopmentService !== 'undefined') {
+            repaired.drivers.forEach(d => DriverDevelopmentService.ensureDriverDevelopment(d));
+            repaired.allTeams.forEach(t => (t.drivers || []).forEach(d => DriverDevelopmentService.ensureDriverDevelopment(d)));
+        }
+        if (typeof AcademyService !== 'undefined') {
+            AcademyService.ensureCareerAcademies(repaired);
+        }
+        if (typeof FacilityService !== 'undefined') {
+            FacilityService.ensureCareerFacilities(repaired);
+        }
+        if (typeof SponsorService !== 'undefined') {
+            SponsorService.ensureSponsors(repaired);
+        }
+        if (typeof ContractService !== 'undefined') {
+            ContractService.ensureCareerContracts(repaired);
         }
 
         return repaired;

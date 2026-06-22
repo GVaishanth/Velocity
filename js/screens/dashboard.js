@@ -43,6 +43,11 @@ window.DashboardScreen = (() => {
             team: Safe.ensureObject(career.team)
         };
 
+        if (typeof ContractService !== 'undefined') {
+            ContractService.ensureCareerContracts(career);
+            try { StateManager.set('career', career); } catch(e) {}
+        }
+
         // Authoritative calendar handling. Dashboard never generates its own calendar;
         // invalid calendars are logged and repaired only by CalendarService.
         if (typeof CalendarService !== 'undefined') {
@@ -114,9 +119,11 @@ window.DashboardScreen = (() => {
         const onlinePlayers = (typeof OnlineManager !== 'undefined') ? OnlineManager.getOnlinePlayers() : [];
         const everyoneReady = onlinePlayers.every(p => p.isReadyForWeekend);
         const myReady = onlinePlayers.find(p => p.username === OnlineManager.getMyUsername())?.isReadyForWeekend;
+        const champInfo = getChampionshipSnapshot(career, constructorPos);
+        const livery = career.livery || { primary: career.team?.color || '#00FF41', secondary: '#111111', accent: '#FFFFFF' };
 
         return `
-            <div class="dashboard-main-grid">
+            <div class="dashboard-main-grid" style="--team-primary:${livery.primary || career.team?.color || '#00FF41'}; --team-secondary:${livery.secondary || '#111111'}; --team-accent:${livery.accent || '#FFFFFF'};">
                 <!-- NEXT RACE CARD -->
                 <div class="dashboard-card dashboard-next-race">
                     <div class="card-header-row">
@@ -127,28 +134,29 @@ window.DashboardScreen = (() => {
                     ${nextTrack ? `
                         <div class="next-race-content">
                             <div class="next-race-flag">${nextTrack.flag}</div>
-                            <div>
+                            <div style="min-width:0; flex:1;">
                                 <div class="next-race-name">${escapeHTML(nextTrack.name)}</div>
+                                ${renderTrackPreview(nextTrack, career)}
                                 <div class="next-race-country">${escapeHTML(nextTrack.country)} • ${nextTrack.city || ''}</div>
                             </div>
                         </div>
 
                         <div class="next-race-stats">
                             <div class="race-stat">
-                                <div class="race-stat-label">Length</div>
-                                <div class="race-stat-value">${nextTrack.length} km</div>
+                                <div class="race-stat-label">Country</div>
+                                <div class="race-stat-value" style="font-size: 12px;">${nextTrack.flag}</div>
+                            </div>
+                            <div class="race-stat">
+                                <div class="race-stat-label">Weather</div>
+                                <div class="race-stat-value">${nextTrack.rainProbability}%</div>
                             </div>
                             <div class="race-stat">
                                 <div class="race-stat-label">Laps</div>
                                 <div class="race-stat-value">${nextTrack.laps}</div>
                             </div>
                             <div class="race-stat">
-                                <div class="race-stat-label">Type</div>
+                                <div class="race-stat-label">Weekend</div>
                                 <div class="race-stat-value" style="font-size: 12px;">${nextTrack.type.replace('_', ' ')}</div>
-                            </div>
-                            <div class="race-stat">
-                                <div class="race-stat-label">Rain</div>
-                                <div class="race-stat-value">${nextTrack.rainProbability}%</div>
                             </div>
                         </div>
 
@@ -198,13 +206,18 @@ window.DashboardScreen = (() => {
                 <!-- STANDINGS -->
                 <div class="dashboard-card">
                     <div class="card-label">CHAMPIONSHIP POSITION</div>
-                    <div class="standings-summary">
-                        <div class="standing-block">
+                    <div class="standings-summary compact-standings">
+                        <div class="standing-block team-accent-block">
                             <div class="standing-label">CONSTRUCTORS</div>
                             <div class="standing-position">P${constructorPos}</div>
-                            <div class="standing-points">
-                                ${career.championship.constructorStandings.find(c => c.teamId === career.team.id)?.points || 0} pts
-                            </div>
+                            <div class="standing-points">${champInfo.points} pts</div>
+                        </div>
+
+                        <div class="champ-info-grid">
+                            <div><span>Gap</span><b>${champInfo.gapText}</b></div>
+                            <div><span>Wins</span><b>${champInfo.wins}</b></div>
+                            <div><span>Podiums</span><b>${champInfo.podiums}</b></div>
+                            <div><span>Last 5</span><b>${champInfo.form}</b></div>
                         </div>
 
                         <div class="driver-standings-mini">
@@ -219,8 +232,55 @@ window.DashboardScreen = (() => {
                     </div>
                 </div>
 
+                <!-- TEAM HEADQUARTERS -->
+                <div class="dashboard-card headquarters-dashboard-card">
+                    <div class="card-label">TEAM HEADQUARTERS</div>
+                    <div class="standings-summary">
+                        <div class="standing-block">
+                            <div class="standing-label">FACILITY RATING</div>
+                            <div class="standing-position" style="color:#FFD700;">${getFacilityRating(career)}</div>
+                            <div class="standing-points">${getActiveUpgrades(career).length} upgrades active</div>
+                        </div>
+                        <div class="driver-standings-mini">
+                            <div class="driver-standing-row">
+                                <span class="driver-name-mini">Next Completion</span>
+                                <span class="driver-pts">${getNextCompletionDays(career) === null ? '—' : `${getNextCompletionDays(career)} Days`}</span>
+                            </div>
+                            <div class="driver-standing-row">
+                                <span class="driver-name-mini">Budget Impact</span>
+                                <span class="driver-pts">$${formatMoney(getHQMaintenance(career))}/yr</span>
+                            </div>
+                            <div class="hq-level-summary">
+                                ${renderHQLevelSummary(career)}
+                            </div>
+                            <button class="btn btn-glow btn-full" id="db-open-hq" style="margin-top:10px;font-family:Orbitron;font-weight:900;">OPEN HQ</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- SPONSOR SNAPSHOT -->
+                <div class="dashboard-card sponsor-dashboard-card">
+                    <div class="card-label">SPONSORS & PARTNERSHIPS</div>
+                    <div class="sponsor-card-content">
+                        <div class="sponsor-primary-panel">
+                            <div class="standing-label">MAIN SPONSOR</div>
+                            <div class="sponsor-main-name">${escapeHTML(career.activeSponsor?.name || 'NONE')}</div>
+                            <div class="sponsor-meta-line">${career.activeSponsor ? `${career.activeSponsor.type?.replace('_', ' ') || 'PARTNER'} • ${career.activeSponsor.riskLevel || 'LOW'} RISK` : 'No active sponsor contract'}</div>
+                            <button class="btn btn-glow btn-full" id="db-open-sponsors" style="margin-top:12px;font-family:Orbitron;font-weight:900;">OPEN SPONSORS</button>
+                        </div>
+                        <div class="sponsor-detail-grid">
+                            <div class="sponsor-detail-row"><span>Contract Length</span><b>${career.activeSponsor ? `${career.activeSponsor.contractLength} Years` : '—'}</b></div>
+                            <div class="sponsor-detail-row"><span>Current Objective</span><b>${escapeHTML(career.activeSponsor?.objective?.label || career.activeSponsor?.objective?.type || 'Sign Sponsor')}</b></div>
+                            <div class="sponsor-detail-row"><span>Objective Reward</span><b>$${formatMoney(career.activeSponsor?.raceBonus || 0)}</b></div>
+                            <div class="sponsor-detail-row"><span>Sponsor Income</span><b>$${formatMoney(career.sponsorIncomeThisSeason || 0)}</b></div>
+                            <div class="sponsor-detail-row"><span>Team Reputation</span><b>${Math.round(career.teamReputation || career.fanPopularity || 50)}</b></div>
+                            <div class="sponsor-detail-row"><span>Available Offers</span><b>${career.sponsorOffers?.length || 0}</b></div>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- QUICK ACTIONS -->
-                <div class="dashboard-card">
+                <div class="dashboard-card quick-actions-card">
                     <div class="card-label">QUICK ACTIONS</div>
                     <div class="action-grid">
                         <button class="action-btn" id="db-rd">
@@ -248,11 +308,6 @@ window.DashboardScreen = (() => {
                             <div class="action-label">Race History</div>
                             <div class="action-sub">${career.raceHistory?.length || 0} matches</div>
                         </button>
-                        <button class="action-btn" id="db-sponsors">
-                            <div class="action-icon">🤝</div>
-                            <div class="action-label" style="color: #FFD700;">Corporate Sponsors</div>
-                            <div class="action-sub">${career.activeSponsor ? escapeHTML(career.activeSponsor.name) : 'Sign Definitive Sponsor'}</div>
-                        </button>
                         <button class="action-btn" id="db-media">
                             <div class="action-icon">🎙️</div>
                             <div class="action-label" style="color: #0080FF;">Media Press Room</div>
@@ -263,6 +318,12 @@ window.DashboardScreen = (() => {
                             <div class="action-label" style="color: #FF00FF;">Livery Editor</div>
                             <div class="action-sub">${career.livery?.changesThisSeason || 0}/2 Changes Used</div>
                         </button>
+                        <button class="action-btn" id="db-academy">
+                            <div class="action-icon">🌱</div>
+                            <div class="action-label" style="color: #00BFFF;">Driver Academy</div>
+                            <div class="action-sub">${career.academy?.drivers?.length || 0} Prospects • Reserve ${career.academy?.reserveDriver ? 'Ready' : 'Empty'}</div>
+                        </button>
+
                     </div>
                 </div>
 
@@ -278,21 +339,19 @@ window.DashboardScreen = (() => {
                             const result = career.raceHistory?.[idx];
 
                             return `
-                                <div class="calendar-row ${isPast ? 'past' : ''} ${isCurrent ? 'current' : ''}" style="height: 60px;">
+                                <div class="calendar-row ${isPast ? 'past' : ''} ${isCurrent ? 'current' : ''}" ${isCurrent ? 'data-current-round="true"' : ''}>
                                     <div class="cal-round">R${idx + 1}</div>
                                     <div class="cal-flag">${t.flag}</div>
-                                    <div class="cal-name" style="display: flex; align-items: center; gap: 10px;">
-                                        <svg viewBox="0 0 100 60" style="width: 40px; height: 25px; filter: drop-shadow(0 0 2px var(--green));">
-                                            <path d="${t.svgPath}" fill="none" stroke="var(--green)" stroke-width="3" transform="scale(0.12)" />
-                                        </svg>
-                                        <div>
-                                            <div>${escapeHTML(t.name)}</div>
-                                            <div style="font-size: 10px; color: var(--gray-500);">${t.laps} LAPS • ${t.length}km</div>
-                                        </div>
+                                    ${renderMiniTrackLayout(t, career)}
+                                    <div class="cal-name">
+                                        <div class="cal-track-title">${escapeHTML(t.name)}</div>
+                                        <div class="cal-track-info">${escapeHTML(t.country || 'Global')}</div>
                                     </div>
+                                    <div class="cal-distance">${t.length} km</div>
+                                    <div class="cal-laps">${t.laps} Laps</div>
                                     <div class="cal-status">
                                         ${isPast && result ? `<span class="cal-result">P${result.playerBestPosition || '-'}</span>` :
-                                          isCurrent ? '<span class="cal-next">NEXT</span>' :
+                                          isCurrent ? '<span class="cal-next">ACTIVE</span>' :
                                           '<span class="cal-upcoming">—</span>'}
                                     </div>
                                 </div>
@@ -384,7 +443,7 @@ window.DashboardScreen = (() => {
             EventBus.emit('nav:home');
         });
 
-        container.querySelector('#db-enter-race')?.addEventListener('click', () => {
+        const enterRaceWeekend = () => {
             const race = StateManager.get('race');
             if (race && race.isMultiplayerRace) {
                 if (typeof OnlineManager !== 'undefined' && OnlineManager.isHost()) {
@@ -396,7 +455,8 @@ window.DashboardScreen = (() => {
             } else {
                 EventBus.emit('nav:go', { screen: 'race-weekend', color: '#00FF41' });
             }
-        });
+        };
+        container.querySelector('#db-enter-race')?.addEventListener('click', enterRaceWeekend);
 
         container.querySelector('#db-next-season')?.addEventListener('click', () => {
             advanceToNextSeason();
@@ -422,7 +482,7 @@ window.DashboardScreen = (() => {
             showHistoryModal();
         });
 
-        container.querySelector('#db-sponsors')?.addEventListener('click', () => {
+        container.querySelector('#db-open-sponsors')?.addEventListener('click', () => {
             if (typeof showSponsorsStudioModal === 'function') showSponsorsStudioModal();
         });
 
@@ -432,6 +492,12 @@ window.DashboardScreen = (() => {
 
         container.querySelector('#db-livery')?.addEventListener('click', () => {
             showLiveryEditorModal();
+        });
+        container.querySelector('#db-academy')?.addEventListener('click', () => {
+            showAcademyModal();
+        });
+        container.querySelector('#db-open-hq')?.addEventListener('click', () => {
+            EventBus.emit('nav:go', { screen: 'headquarters', color: '#FFD700' });
         });
     }
 
@@ -776,9 +842,29 @@ window.DashboardScreen = (() => {
             className: 'modal-xl modal-market',
             body: `
                 <div class="market-master-studio" style="display: flex; flex-direction: column; gap: 16px; font-family: 'Rajdhani', sans-serif;">
-                    <p class="market-subtitle" style="font-size: 14px; font-weight: 600; color: var(--gray-300); line-height: 1.4; border-bottom: 1px solid var(--border-subtle); padding-bottom: 10px;">
-                        Sign elite drivers to your active Constructor lineup. Released drivers return to the available pool. Drivers signed to rival teams are locked.
-                    </p>
+                    <div class="market-command-bar">
+                        <div>
+                            <div class="market-kicker">TRANSFER MARKET INTELLIGENCE</div>
+                            <p class="market-subtitle">Search, filter, compare and negotiate with elite drivers. Free agents and expiring contracts are highlighted for rapid squad planning.</p>
+                        </div>
+                        <div class="market-controls-row">
+                            <input class="input" id="market-search" placeholder="Search driver or nationality..." style="min-width:220px;">
+                            <select class="select" id="market-sort" style="min-width:160px;">
+                                <option value="rating">Sort: OVR</option>
+                                <option value="potential">Sort: Potential</option>
+                                <option value="age">Sort: Age</option>
+                                <option value="salary">Sort: Salary</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div id="market-comparison-panel" class="market-comparison-panel">
+                        <div class="market-kicker">COMPARISON MODE — SELECT UP TO 3 DRIVERS</div>
+                        <div id="market-comparison-grid" class="market-comparison-grid"></div>
+                    </div>
+
+                    <div class="market-section-tabs">
+                        <span>AVAILABLE DRIVERS</span><span>CONTRACT EXPIRING SOON</span><span>TOP PROSPECTS</span>
+                    </div>
 
                     <div class="market-split-flex" style="display: flex; gap: 24px; flex-wrap: wrap;">
                         <!-- Left Column: Owned Roster (Width 40%) -->
@@ -794,11 +880,14 @@ window.DashboardScreen = (() => {
                                         <div class="m-info" style="flex: 1; min-width: 0;">
                                             <div class="m-name" style="font-family: Rajdhani; font-weight: 800; font-size: 16px; color: #FFFFFF;">${escapeHTML(d.name)}</div>
                                             <div class="m-stats" style="font-family: Orbitron; font-size: 10px; font-weight: 700; color: var(--gray-400); margin-top: 2px;">Pace ${d.stats?.pace || 80} • Wet ${d.stats?.wetSkill || 80} • Race ${d.stats?.racecraft || 80}</div>
+                                            <div class="m-contract" style="font-family: Orbitron; font-size: 9px; font-weight: 800; color: ${d.freeAgent || d.contractYears <= 0 ? '#FF0033' : '#FFD700'}; margin-top: 3px;">CONTRACT: ${d.contractYears || 0}Y • SALARY $${formatMoney(d.salary || 0)} • ${d.contractStatus || 'ACTIVE'}</div>
+                                            <div class="m-development" style="font-family: Orbitron; font-size: 9px; font-weight: 800; color: #00BFFF; margin-top: 2px;">AGE ${d.age} • POT ${d.potentialRating || d.rating} • PEAK ${d.peakAgeStart || 26}-${d.peakAgeEnd || 33} • RET ${(100 * (d.retirementRisk || 0)).toFixed(0)}%</div>
                                         </div>
                                         <div class="m-rating-box" style="text-align: right;">
                                             <div class="m-rate" style="font-family: Orbitron; font-weight: 900; font-size: 18px; color: #00FF41;">${d.rating || 80}</div>
-                                            <div class="m-salary" style="font-family: Orbitron; font-size: 10px; color: var(--gray-500);">$${formatMoney(d.cost || 10000000)}</div>
+                                            <div class="m-salary" style="font-family: Orbitron; font-size: 10px; color: var(--gray-500);">VAL $${formatMoney(d.marketValue || d.cost || 10000000)}</div>
                                         </div>
+                                        <button class="btn btn-glow market-btn renew-btn" data-renew="${d.id}" style="padding: 8px 12px; font-family: Orbitron; font-weight: 900; font-size: 10px; border-radius: 6px;">RENEW</button>
                                         <button class="btn btn-danger market-btn release-btn" data-release="${idx}" style="padding: 8px 14px; font-family: Orbitron; font-weight: 900; font-size: 10px; border-radius: 6px;">RELEASE</button>
                                     </div>
                                 `).join('')}
@@ -847,6 +936,7 @@ window.DashboardScreen = (() => {
             onOpen: () => {
                 attachMarketFilterListeners(availableDrivers, career);
                 attachMarketDriverListeners(availableDrivers, career);
+                attachMarketSearchAndCompare(availableDrivers, career);
             }
         });
     }
@@ -865,25 +955,35 @@ window.DashboardScreen = (() => {
         }
 
         return filtered.map(d => {
-            const canAfford = d.cost <= career.budget;
+            const canAfford = (d.cost || d.marketValue || 0) <= career.budget;
             const teamFull = career.drivers.length >= 2;
             const disabled = !canAfford || teamFull;
+            const interest = d.freeAgent ? 'High' : (d.contractYears || 0) <= 1 ? 'Medium' : 'Low';
+            const traitList = (d.traits || []).slice(0, 3).join(' • ') || 'Developing Profile';
 
             return `
-                <div class="m-driver-card ${disabled ? 'disabled' : ''}" style="background: linear-gradient(135deg, rgba(20,20,28,0.8), rgba(8,8,12,0.95)); border: 1px solid ${disabled ? 'rgba(255,255,255,0.1)' : '#0080FF'}; border-radius: 10px; padding: 12px; display: flex; align-items: center; justify-content: space-between; gap: 10px; transition: all 0.2s ease; ${disabled ? 'opacity: 0.5;' : ''}">
-                    <span class="m-flag" style="font-size: 24px;">${escapeHTML(d.flag || '🏁')}</span>
-                    <div class="m-info" style="flex: 1; min-width: 0;">
-                        <div class="m-name" style="font-family: Rajdhani; font-weight: 800; font-size: 15px; color: #FFFFFF; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHTML(d.name)}</div>
-                        <div class="m-stats" style="font-family: Orbitron; font-size: 9px; font-weight: 700; color: var(--gray-400); margin-top: 2px;">Pace ${d.stats?.pace || 80} • Wet ${d.stats?.wetSkill || 80} • Race ${d.stats?.racecraft || 80}</div>
+                <div class="market-pro-driver-card ${disabled ? 'disabled' : ''}" data-driver-name="${escapeHTML(d.name)}" data-nationality="${escapeHTML(d.nationality || '')}" data-rating="${d.rating || 0}" data-age="${d.age || 0}" data-potential="${d.potentialRating || d.rating || 0}" data-salary="${d.salary || d.cost || 0}">
+                    <div class="market-card-topline">
+                        <label class="compare-chip"><input type="checkbox" class="market-compare" data-driver-id="${d.id}"> COMPARE</label>
+                        <span class="interest-badge ${interest.toLowerCase()}">INTEREST ${interest}</span>
                     </div>
-                    <div style="text-align: right;">
-                        <div class="m-rating" style="font-family: Orbitron; font-weight: 900; font-size: 16px; color: #00FF41;">${d.rating || 80}</div>
-                        <div class="m-cost" style="font-family: Orbitron; font-weight: 700; font-size: 10px; color: ${canAfford ? '#FFD700' : 'var(--red)'};">$${formatMoney(d.cost || 10000000)}</div>
+                    <div class="market-card-hero">
+                        <div class="market-driver-flag">${escapeHTML(d.flag || '🏁')}</div>
+                        <div class="market-driver-main">
+                            <div class="market-driver-name">${escapeHTML(d.name)}</div>
+                            <div class="market-driver-sub">${escapeHTML(d.nationality || 'Global')} • Age ${d.age || '—'} • ${d.freeAgent ? 'Free Agent' : `${d.contractYears || 0}Y Contract`}</div>
+                        </div>
+                        <div class="market-ovr-pill"><span>OVR</span>${d.rating || 80}</div>
                     </div>
-                    <button class="btn btn-glow market-btn sign-btn"
-                        data-hire="${d.id}"
-                        ${disabled ? 'disabled' : ''} style="padding: 6px 12px; font-family: Orbitron; font-weight: 900; font-size: 10px; border-radius: 6px;">
-                        ${teamFull ? 'FULL' : 'SIGN'}
+                    <div class="market-card-grid">
+                        <div><span>Potential</span><b>${d.potentialRating || d.rating || '—'}</b></div>
+                        <div><span>Salary</span><b>$${formatMoney(d.salary || d.cost || 0)}</b></div>
+                        <div><span>Market Value</span><b>$${formatMoney(d.marketValue || d.cost || 0)}</b></div>
+                        <div><span>Contract</span><b>${d.freeAgent ? 'Free' : `${d.contractYears || 0}Y`}</b></div>
+                    </div>
+                    <div class="market-trait-line">${escapeHTML(traitList)}</div>
+                    <button class="btn btn-glow market-btn sign-btn" data-hire="${d.id}" ${disabled ? 'disabled' : ''}>
+                        ${teamFull ? 'ROSTER FULL' : 'NEGOTIATE'}
                     </button>
                 </div>
             `;
@@ -915,6 +1015,42 @@ window.DashboardScreen = (() => {
         });
     }
 
+    function attachMarketSearchAndCompare(availableDrivers, career) {
+        const search = document.getElementById('market-search');
+        const sort = document.getElementById('market-sort');
+        const list = document.getElementById('available-driver-list');
+        const renderFiltered = () => {
+            if (!list) return;
+            const term = (search?.value || '').toLowerCase();
+            const sortBy = sort?.value || 'rating';
+            let drivers = availableDrivers.filter(d => `${d.name} ${d.nationality}`.toLowerCase().includes(term));
+            drivers.sort((a, b) => {
+                if (sortBy === 'potential') return (b.potentialRating || b.rating || 0) - (a.potentialRating || a.rating || 0);
+                if (sortBy === 'age') return (a.age || 99) - (b.age || 99);
+                if (sortBy === 'salary') return (a.salary || a.cost || 0) - (b.salary || b.cost || 0);
+                return (b.rating || 0) - (a.rating || 0);
+            });
+            list.innerHTML = renderAvailableDrivers(drivers, career, 'all');
+            attachMarketDriverListeners(availableDrivers, career);
+        };
+        search?.addEventListener('input', renderFiltered);
+        sort?.addEventListener('change', renderFiltered);
+    }
+
+    function updateMarketComparison() {
+        const checked = [...document.querySelectorAll('.market-compare:checked')].slice(0, 3);
+        document.querySelectorAll('.market-compare').forEach(cb => { if (!checked.includes(cb) && checked.length >= 3) cb.checked = false; });
+        const panel = document.getElementById('market-comparison-panel');
+        const grid = document.getElementById('market-comparison-grid');
+        if (!panel || !grid) return;
+        if (checked.length === 0) { panel.classList.remove('active'); grid.innerHTML = ''; return; }
+        panel.classList.add('active');
+        grid.innerHTML = checked.map(cb => {
+            const card = cb.closest('.market-pro-driver-card');
+            return `<div class="compare-card"><b>${card.querySelector('.market-driver-name')?.textContent || 'Driver'}</b><span>OVR ${card.dataset.rating}</span><span>Potential ${card.dataset.potential}</span><span>Age ${card.dataset.age}</span><span>Salary $${formatMoney(parseInt(card.dataset.salary || '0'))}</span></div>`;
+        }).join('');
+    }
+
     function attachMarketDriverListeners(availableDrivers, career) {
         document.querySelectorAll('[data-release]').forEach(btn => {
             btn.addEventListener('click', () => {
@@ -928,6 +1064,37 @@ window.DashboardScreen = (() => {
                 const driverId = btn.dataset.hire;
                 hireDriver(driverId);
             });
+        });
+        document.querySelectorAll('[data-renew]').forEach(btn => {
+            btn.addEventListener('click', () => renewDriverContract(btn.dataset.renew));
+        });
+        document.querySelectorAll('.market-compare').forEach(cb => cb.addEventListener('change', updateMarketComparison));
+    }
+
+    function renewDriverContract(driverId) {
+        const career = StateManager.get('career');
+        if (!career || typeof ContractService === 'undefined') return;
+        const driver = career.drivers.find(d => d.id === driverId);
+        if (!driver) return;
+        const proposedSalary = Math.round((driver.salary || 1000000) * 1.08);
+        Modals.confirm({
+            title: `Renew ${driver.name}?`,
+            body: `Offer a 2-year renewal at $${formatMoney(proposedSalary)} salary. Signing bonus is approximately $${formatMoney(proposedSalary * 0.25)}.`,
+            confirmText: 'Renew Contract',
+            confirmType: 'primary',
+            onConfirm: () => {
+                const result = ContractService.renewDriver(career, driverId, 2, proposedSalary);
+                if (!result.ok) {
+                    Notifications.error('Renewal Failed', result.reason);
+                    return;
+                }
+                StateManager.set('career', career);
+                StateManager.saveGame();
+                if (career.isMultiplayer && typeof OnlineManager !== 'undefined') OnlineManager.broadcastAction('CONTRACT_SYNC', { career });
+                Notifications.success('Contract Renewed', `${driver.name} renewed for 2 years.`);
+                Modals.close();
+                setTimeout(() => showDriverMarketModal(), 250);
+            }
         });
     }
 
@@ -957,6 +1124,7 @@ window.DashboardScreen = (() => {
 
                 StateManager.set('career', career);
                 StateManager.saveGame();
+                if (career.isMultiplayer && typeof OnlineManager !== 'undefined') OnlineManager.broadcastAction('CONTRACT_SYNC', { career });
 
                 Notifications.success(`${driver.name} released`);
                 Modals.close();
@@ -993,7 +1161,8 @@ window.DashboardScreen = (() => {
             confirmType: 'primary',
             onConfirm: () => {
                 career.budget -= driver.cost;
-                career.drivers.push(driver);
+                const signedDriver = (typeof ContractService !== 'undefined') ? ContractService.withDriverContract(driver, career.team.id, 2) : driver;
+                career.drivers.push(signedDriver);
 
                 const playerTeam = career.allTeams?.find(t => t.id === career.team.id);
                 if (playerTeam) playerTeam.drivers = career.drivers;
@@ -1014,6 +1183,7 @@ window.DashboardScreen = (() => {
 
                 StateManager.set('career', career);
                 StateManager.saveGame();
+                if (career.isMultiplayer && typeof OnlineManager !== 'undefined') OnlineManager.broadcastAction('CONTRACT_SYNC', { career });
 
                 Notifications.success(`Signed ${driver.name}!`, `Welcome to ${career.team.name}`);
                 Modals.close();
@@ -1214,75 +1384,76 @@ window.DashboardScreen = (() => {
 
     function showSponsorsStudioModal() {
         const career = typeof StateManager?.get === 'function' ? StateManager.get('career') : null;
-        if (!career) return;
-
-        const sponsors = [
-            { id: 'sp1', name: 'AWS Subspace Matrix', payout: 2500000, fine: 1000000, goal: 'Double Constructor Top-10 Finishes', desc: 'AWS Subspace pays $2.5M per match but demands both local constructor machines finish in the points (P1-P10). Breaching incurs a $1.0M network fine.' },
-            { id: 'sp2', name: 'Petronas Synthetic Core', payout: 3500000, fine: 1500000, goal: 'At Least One Podium Step', desc: 'Petronas Synthetic Core wires $3.5M per match but requires at least one driver to step onto the podium steps (P1-P3). Breaching incurs a $1.5M synthetic oil bill.' },
-            { id: 'sp3', name: 'Monster Energy Slingshot', payout: 4500000, fine: 2000000, goal: 'Absolute Fastest Lap of Match', desc: 'Monster Energy Slingshot provides a massive $4.5M payout but mandates your Constructor achieves the overall match fastest lap. Breaching deducts a $2.0M beverage refund.' },
-            { id: 'sp4', name: 'Red Bull Esport Transcendent', payout: 6000000, fine: 3000000, goal: 'Double Constructor Podiums (P1-P3)', desc: 'Red Bull Esport Transcendent delivers an absolute transcendent $6.0M payout but strictly enforces double Constructor podium finishes (P1-P3). Breaching deducts a $3.0M front wing bill.' }
-        ];
+        if (!career || typeof SponsorService === 'undefined') return;
+        SponsorService.ensureSponsors(career);
 
         Modals.open({
-            title: `🤝 CORPORATE SPONSORSHIP STUDIO — CURRENT: ${career.activeSponsor ? escapeHTML(career.activeSponsor.name) : 'NONE'}`,
+            title: `🤝 SPONSORS & PARTNERSHIPS — REPUTATION ${Math.round(career.teamReputation || 50)}`,
             className: 'modal-xl',
             body: `
-                <div style="display: flex; flex-direction: column; gap: 16px; font-family: 'Rajdhani', sans-serif;">
-                    <p style="color: var(--gray-300); font-size: 15px; border-bottom: 1px solid var(--border-subtle); padding-bottom: 12px; line-height: 1.4;">
-                        Sign a definitive primary corporate sponsor to bankroll your Constructor operations. You earn their massive payout after every match if you meet their mandatory finish threshold. Breaching the contract incurs highly sarcastic corporate billing invoices!
-                    </p>
+                <div style="display:flex;flex-direction:column;gap:18px;font-family:Rajdhani;">
+                    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;">
+                        <div class="info-card"><b>Main Sponsor</b><br>${escapeHTML(career.activeSponsor?.name || 'None')}</div>
+                        <div class="info-card"><b>Season Income</b><br>$${formatMoney(career.sponsorIncomeThisSeason || 0)}</div>
+                        <div class="info-card"><b>Active Deals</b><br>${career.sponsorContracts?.length || 0}</div>
+                        <div class="info-card"><b>Offers</b><br>${career.sponsorOffers?.length || 0}</div>
+                    </div>
 
-                    <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px;">
-                        ${sponsors.map(sp => {
-                            const isCurrent = career.activeSponsor?.id === sp.id;
-                            return `
-                                <div class="sponsor-card" style="background: linear-gradient(135deg, rgba(20,20,30,0.85), rgba(8,8,14,0.95)); border: 2px solid ${isCurrent ? '#FFD700' : '#0080FF'}; border-radius: 16px; padding: 20px; display: flex; flex-direction: column; justify-content: space-between; gap: 14px; box-shadow: ${isCurrent ? '0 0 30px rgba(255,215,0,0.4)' : '0 8px 25px rgba(0,0,0,0.8)'}; transition: all 0.3s ease;">
-                                    <div>
-                                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-wrap: wrap; gap: 6px;">
-                                            <span style="font-family: Orbitron; font-weight: 900; font-size: 18px; color: var(--white);">${escapeHTML(sp.name)}</span>
-                                            <span style="font-family: Orbitron; font-size: 11px; font-weight: 900; color: ${isCurrent ? '#000' : '#FFD700'}; background: ${isCurrent ? '#FFD700' : 'rgba(255,215,0,0.15)'}; padding: 4px 10px; border-radius: 6px;">${isCurrent ? '★ ACTIVE SPONSOR' : 'AVAILABLE'}</span>
-                                        </div>
-                                        <div style="font-family: Orbitron; font-size: 11px; font-weight: 800; color: #00FF41; margin-bottom: 8px; background: rgba(0,255,65,0.1); padding: 6px 10px; border-radius: 6px; border: 1px solid #00FF41;">
-                                            🎯 MANDATORY THRESHOLD: ${escapeHTML(sp.goal)}
-                                        </div>
-                                        <p style="font-size: 13px; font-weight: 600; color: var(--gray-400); line-height: 1.4;">${escapeHTML(sp.desc)}</p>
-                                    </div>
-
-                                    <div style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 12px; margin-top: auto; flex-wrap: wrap; gap: 10px;">
-                                        <div>
-                                            <div style="font-family: Orbitron; font-size: 10px; color: var(--gray-500); font-weight: 700;">MATCH PAYOUT / FINE</div>
-                                            <div style="font-family: Orbitron; font-weight: 900; font-size: 15px;"><span style="color: #00FF41;">+$${formatMoney(sp.payout)}</span> / <span style="color: var(--red);">-$${formatMoney(sp.fine)}</span></div>
-                                        </div>
-                                        <button class="btn btn-glow sponsor-btn" data-sponsor-id="${sp.id}" ${isCurrent ? 'disabled' : ''} style="padding: 10px 20px; font-family: Orbitron; font-weight: 900; font-size: 11px; border-radius: 8px;">
-                                            ${isCurrent ? 'SIGNED CONTRACT' : 'SIGN CONTRACT'}
-                                        </button>
+                    <div>
+                        <h3 style="font-family:Orbitron;color:#FFD700;font-size:13px;">ACTIVE CONTRACTS</h3>
+                        <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px;">
+                            ${(career.sponsorContracts || []).map(sp => `
+                                <div style="background:var(--surface-1);border:1px solid rgba(255,215,0,.35);border-radius:12px;padding:14px;">
+                                    <div style="display:flex;justify-content:space-between;gap:8px;"><b style="font-family:Orbitron;color:white;">${escapeHTML(sp.name)}</b><span style="color:#FFD700;font-family:Orbitron;">${sp.type}</span></div>
+                                    <div style="font-size:12px;color:var(--gray-300);margin-top:6px;">${sp.contractLength} years left • Risk ${sp.riskLevel} • Req Rep ${sp.reputationRequirement}</div>
+                                    <div style="font-size:12px;color:#00FF41;">Base $${formatMoney(sp.basePayment)} • Race Bonus $${formatMoney(sp.raceBonus)} • Championship $${formatMoney(sp.championshipBonus)}</div>
+                                    <div style="font-size:12px;color:#FFD700;">Goal: ${escapeHTML(sp.objective?.label || sp.objective?.type || 'Objective')}</div>
+                                    <div style="margin-top:8px;display:flex;gap:6px;">
+                                        <button class="btn btn-glow sponsor-renew" data-id="${sp.id}" style="font-size:9px;">RENEW</button>
+                                        <button class="btn btn-danger sponsor-terminate" data-id="${sp.id}" style="font-size:9px;">TERMINATE</button>
                                     </div>
                                 </div>
-                            `;
-                        }).join('')}
+                            `).join('') || '<div style="color:var(--gray-500);">No active sponsors.</div>'}
+                        </div>
+                    </div>
+
+                    <div>
+                        <h3 style="font-family:Orbitron;color:#00BFFF;font-size:13px;">AVAILABLE OFFERS</h3>
+                        <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px;">
+                            ${(career.sponsorOffers || []).map(sp => {
+                                const can = SponsorService.canSign(career, sp);
+                                return `
+                                    <div style="background:linear-gradient(135deg,rgba(20,20,30,.9),rgba(8,8,14,.95));border:1px solid ${can.ok ? '#0080FF' : '#555'};border-radius:12px;padding:14px;${can.ok ? '' : 'opacity:.6;'}">
+                                        <div style="display:flex;justify-content:space-between;gap:8px;"><b style="font-family:Orbitron;color:white;">${escapeHTML(sp.name)}</b><span style="color:#FFD700;font-family:Orbitron;">${sp.type}</span></div>
+                                        <div style="font-size:12px;color:var(--gray-300);margin-top:6px;">${sp.contractLength} years • Risk ${sp.riskLevel} • Rep Required ${sp.reputationRequirement}</div>
+                                        <div style="font-size:12px;color:#00FF41;">Upfront $${formatMoney(sp.upfrontPayment)} • Base $${formatMoney(sp.basePayment)} • Race $${formatMoney(sp.raceBonus)}</div>
+                                        <div style="font-size:12px;color:#FFD700;">Goal: ${escapeHTML(sp.objective?.label || sp.objective?.type)}</div>
+                                        <div style="margin-top:8px;display:flex;gap:6px;">
+                                            <button class="btn btn-glow sponsor-accept" data-id="${sp.id}" ${can.ok ? '' : 'disabled'} style="font-size:9px;">ACCEPT</button>
+                                            <button class="btn sponsor-counter" data-id="${sp.id}" ${can.ok ? '' : 'disabled'} style="font-size:9px;">COUNTER +15%</button>
+                                            <button class="btn btn-danger sponsor-reject" data-id="${sp.id}" style="font-size:9px;">REJECT</button>
+                                        </div>
+                                        ${can.ok ? '' : `<div style="font-size:11px;color:var(--red);margin-top:6px;">${escapeHTML(can.reason)}</div>`}
+                                    </div>`;
+                            }).join('')}
+                        </div>
                     </div>
                 </div>
             `,
             actions: [{ label: 'RETURN TO DASHBOARD', type: 'secondary' }],
             onOpen: () => {
-                document.querySelectorAll('.sponsor-btn').forEach(btn => {
-                    btn.addEventListener('click', (e) => {
-                        e.stopPropagation();
-                        const spId = btn.dataset.sponsorId;
-                        const selectedSp = sponsors.find(x => x.id === spId);
-                        if (!selectedSp) return;
-
-                        career.activeSponsor = selectedSp;
-                        if (typeof StateManager !== 'undefined') {
-                            StateManager.set('career', career);
-                            StateManager.saveGame?.();
-                        }
-                        if (typeof AudioManager !== 'undefined') AudioManager.uiClick?.();
-                        if (typeof Notifications !== 'undefined') Notifications.success('🤝 Corporate Sponsorship Contract Signed!', `${selectedSp.name} bankrolls operations.`);
-                        Modals.close();
-                        if (typeof render === 'function') render();
-                    });
-                });
+                document.querySelectorAll('.sponsor-accept').forEach(btn => btn.addEventListener('click', () => {
+                    const res = SponsorService.acceptOffer(career, btn.dataset.id);
+                    if (!res.ok) { Notifications.error('Sponsor Rejected', res.reason); return; }
+                    StateManager.set('career', career); StateManager.saveGame?.();
+                    if (career.isMultiplayer && typeof OnlineManager !== 'undefined') OnlineManager.broadcastAction('SPONSOR_SYNC', { career });
+                    Notifications.success('Sponsor Signed', `${res.sponsor.name} pays $${formatMoney(res.upfrontPayment)} upfront.`);
+                    Modals.close(); render();
+                }));
+                document.querySelectorAll('.sponsor-reject').forEach(btn => btn.addEventListener('click', () => { SponsorService.rejectOffer(career, btn.dataset.id); StateManager.set('career', career); StateManager.saveGame?.(); Modals.close(); showSponsorsStudioModal(); }));
+                document.querySelectorAll('.sponsor-counter').forEach(btn => btn.addEventListener('click', () => { const r = SponsorService.counterOffer(career, btn.dataset.id, 1.15); StateManager.set('career', career); StateManager.saveGame?.(); Notifications.info('Counter Offer', r.accepted ? 'Sponsor accepted improved terms.' : 'Sponsor walked away.'); Modals.close(); showSponsorsStudioModal(); }));
+                document.querySelectorAll('.sponsor-terminate').forEach(btn => btn.addEventListener('click', () => { const r = SponsorService.terminateContract(career, btn.dataset.id); if (!r.ok) return; StateManager.set('career', career); StateManager.saveGame?.(); Notifications.warning('Sponsor Terminated', `Penalty $${formatMoney(r.penalty)} paid.`); Modals.close(); showSponsorsStudioModal(); }));
+                document.querySelectorAll('.sponsor-renew').forEach(btn => btn.addEventListener('click', () => { const sp = career.sponsorContracts.find(s => s.id === btn.dataset.id); if (sp) { sp.contractLength += 1; sp.basePayment = Math.round(sp.basePayment * 1.05); StateManager.set('career', career); StateManager.saveGame?.(); Notifications.success('Sponsor Renewed', `${sp.name} extended by 1 year.`); Modals.close(); showSponsorsStudioModal(); } }));
             }
         });
     }
@@ -1374,6 +1545,165 @@ window.DashboardScreen = (() => {
         });
     }
 
+    function renewStaffContract(role) {
+        const career = StateManager.get('career');
+        if (!career || typeof ContractService === 'undefined') return;
+        const member = career.staff?.[role];
+        if (!member) return;
+        const proposedSalary = Math.round((member.salary || 1000000) * 1.08);
+        Modals.confirm({
+            title: `Renew ${member.name}?`,
+            body: `Offer a 2-year ${role} renewal at $${formatMoney(proposedSalary)} salary. Signing bonus is approximately $${formatMoney(proposedSalary * 0.20)}.`,
+            confirmText: 'Renew Staff Contract',
+            confirmType: 'primary',
+            onConfirm: () => {
+                const result = ContractService.renewStaff(career, role, 2, proposedSalary);
+                if (!result.ok) {
+                    Notifications.error('Renewal Failed', result.reason);
+                    return;
+                }
+                StateManager.set('career', career);
+                StateManager.saveGame();
+                if (career.isMultiplayer && typeof OnlineManager !== 'undefined') OnlineManager.broadcastAction('CONTRACT_SYNC', { career });
+                Notifications.success('Staff Contract Renewed', `${member.name} renewed for 2 years.`);
+                Modals.close();
+                setTimeout(() => showTeamModal(), 250);
+            }
+        });
+    }
+
+    function showFacilitiesModal() {
+        const career = StateManager.get('career');
+        if (!career || typeof FacilityService === 'undefined') return;
+        FacilityService.ensureCareerFacilities(career);
+        const defs = FacilityService.FACILITIES;
+        const benefits = FacilityService.calculateBenefits(career);
+        Modals.open({
+            title: `🏢 ${career.headquarters?.name || 'Team Headquarters'}`,
+            className: 'modal-xl',
+            body: `
+                <div style="display:flex;flex-direction:column;gap:16px;font-family:Rajdhani;">
+                    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;">
+                        <div class="info-card"><b>Board</b><br>${career.headquarters.boardConfidence}%</div>
+                        <div class="info-card"><b>Shareholders</b><br>${career.headquarters.shareholderConfidence}%</div>
+                        <div class="info-card"><b>Sponsors</b><br>${career.headquarters.sponsorConfidence}%</div>
+                        <div class="info-card"><b>Maintenance</b><br>$${formatMoney(benefits.maintenanceCost)}/season</div>
+                    </div>
+                    <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px;">
+                        ${Object.entries(defs).map(([key, def]) => {
+                            const f = career.headquarters.facilities[key];
+                            const cost = FacilityService.upgradeCost(key, f.level);
+                            const weeks = FacilityService.upgradeWeeks(key, f.level);
+                            return `
+                                <div style="background:var(--surface-1);border:1px solid rgba(255,215,0,.25);border-radius:12px;padding:14px;">
+                                    <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;">
+                                        <div style="font-family:Orbitron;font-weight:900;color:white;">${def.icon} ${def.name}</div>
+                                        <div style="font-family:Orbitron;color:#FFD700;">LVL ${f.level}/10</div>
+                                    </div>
+                                    <div style="font-size:12px;color:var(--gray-300);margin:6px 0;">${def.benefit}</div>
+                                    ${f.upgrade ? `<div style="color:#00BFFF;font-family:Orbitron;font-size:11px;">UPGRADING TO L${f.upgrade.toLevel}: ${f.upgrade.weeksRemaining} WEEKS LEFT</div>` : `<button class="btn btn-glow facility-upgrade" data-facility="${key}" ${f.level >= 10 ? 'disabled' : ''} style="font-size:10px;">UPGRADE $${formatMoney(cost)} • ${weeks} WEEKS</button>`}
+                                </div>`;
+                        }).join('')}
+                    </div>
+                    <div style="font-size:12px;color:var(--gray-400);">Benefits: Aero x${benefits.aeroResearch.toFixed(2)} • Power x${benefits.powertrainResearch.toFixed(2)} • Driver Dev x${benefits.driverDevelopment.toFixed(2)} • Academy x${benefits.academyQuality.toFixed(2)} • Scouting x${benefits.scoutingAccuracy.toFixed(2)} • Sponsor Income x${benefits.sponsorIncome.toFixed(2)}</div>
+                </div>
+            `,
+            actions: [{ label: 'Close HQ', type: 'secondary' }],
+            onOpen: () => {
+                document.querySelectorAll('.facility-upgrade').forEach(btn => btn.addEventListener('click', () => {
+                    const result = FacilityService.requestUpgrade(career, btn.dataset.facility);
+                    if (!result.ok) { Notifications.error('Project Rejected', result.reason); return; }
+                    StateManager.set('career', career); StateManager.saveGame();
+                    if (career.isMultiplayer && typeof OnlineManager !== 'undefined') OnlineManager.broadcastAction('FACILITY_SYNC', { career });
+                    Notifications.success('Facility Project Approved', `${defs[btn.dataset.facility].name} upgrade started.`);
+                    Modals.close(); showFacilitiesModal();
+                }));
+            }
+        });
+    }
+
+    function showAcademyModal() {
+        const career = StateManager.get('career');
+        if (!career || typeof AcademyService === 'undefined') return;
+        AcademyService.ensureCareerAcademies(career);
+        const academy = career.academy;
+        const regions = Object.entries(AcademyService.REGIONS || {});
+        Modals.open({
+            title: '🌱 DRIVER ACADEMY — YOUTH DEVELOPMENT',
+            className: 'modal-xl',
+            body: `
+                ${(() => {
+                    const drivers = academy.drivers || [];
+                    const featured = [...drivers].sort((a,b)=>(b.potentialRating || b.rating || 0)-(a.potentialRating || a.rating || 0))[0];
+                    const avgPotential = drivers.length ? Math.round(drivers.reduce((s,d)=>s+(d.potentialRating || d.rating || 0),0)/drivers.length) : 0;
+                    return `
+                    <div class="academy-hub">
+                        <div class="academy-command-row">
+                            <div class="academy-stat"><span>Academy Rating</span><b>${academy.facilities || 0}</b></div>
+                            <div class="academy-stat"><span>Total Prospects</span><b>${drivers.length}</b></div>
+                            <div class="academy-stat"><span>Average Potential</span><b>${avgPotential}</b></div>
+                            <div class="academy-stat"><span>Highest Potential</span><b>${featured ? `${escapeHTML(featured.name)} (${featured.potentialRange || featured.potentialRating})` : '—'}</b></div>
+                        </div>
+                        ${featured ? `
+                            <div class="featured-prospect-card">
+                                <div class="prospect-avatar">${featured.flag || '🏁'}</div>
+                                <div class="prospect-main">
+                                    <div class="market-kicker">FEATURED PROSPECT</div>
+                                    <h2>${escapeHTML(featured.name)}</h2>
+                                    <div class="prospect-sub">Age ${featured.age} • ${escapeHTML(featured.nationality || 'Global')} • OVR ${featured.rating}</div>
+                                    <div class="prospect-potential">Potential ${featured.potentialRange || featured.potentialRating || 'Unknown'}</div>
+                                    <div class="academy-traits">${(featured.academyTraits || featured.traits || []).map(t=>`<span>${escapeHTML(t)}</span>`).join('')}</div>
+                                </div>
+                                <div class="trend-box"><span>Development Trend</span><b>${(featured.developmentRate || 1) >= 1.35 ? 'Future Star' : (featured.developmentRate || 1) >= 1 ? 'Positive' : 'Watchlist'}</b></div>
+                            </div>
+                        ` : ''}
+                        <div class="academy-filter-row">
+                            <span>FILTERS</span><button class="btn academy-filter">Age</button><button class="btn academy-filter">Potential</button><button class="btn academy-filter">Nationality</button><button class="btn academy-filter">Development Trend</button>
+                        </div>
+                        <div class="academy-table-wrap">
+                            <table class="academy-table">
+                                <thead><tr><th>Name</th><th>Age</th><th>OVR</th><th>Potential</th><th>Development</th><th>Status</th><th>Actions</th></tr></thead>
+                                <tbody>
+                                    ${drivers.map(d => `
+                                        <tr>
+                                            <td><b>${d.flag || '🏁'} ${escapeHTML(d.name)}</b><br><small>${escapeHTML(d.nationality || '')}</small></td>
+                                            <td>${d.age}</td><td>${d.rating}</td><td>${d.potentialRange || d.potentialRating || '—'}</td>
+                                            <td>${(d.developmentRate || 1) >= 1.35 ? 'Rapid' : (d.developmentRate || 1) >= 1 ? 'Steady' : 'Slow'}</td>
+                                            <td>${d.academyStatus || 'ACADEMY'}</td>
+                                            <td><button class="btn btn-glow academy-reserve" data-id="${d.id}">Reserve</button><button class="btn btn-primary academy-promote" data-id="${d.id}">Promote</button><button class="btn btn-danger academy-release" data-id="${d.id}">Release</button></td>
+                                        </tr>`).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+                        <div class="scouting-command">
+                            <div><div class="market-kicker">SCOUTING NETWORK</div><p>Discover future stars by region. Better HQ scouting improves accuracy.</p></div>
+                            <div class="scout-region-grid">${regions.map(([key, r]) => `<button class="btn btn-glow academy-scout" data-region="${key}">${r.name}<br><small>$1.0M</small></button>`).join('')}</div>
+                        </div>
+                        <div class="scouting-reports-grid">
+                            ${(academy.scoutingReports || []).slice(-4).map(r => `<div class="scout-report-card"><b>${r.region} • Quality ${r.quality}</b>${(r.prospects || []).map(p => `<div class="report-prospect"><span>${p.flag} ${escapeHTML(p.name)} — ${p.rating} / ${p.potentialRange}</span><button class="btn btn-glow academy-sign" data-report="${r.id}" data-id="${p.id}">SIGN</button></div>`).join('')}</div>`).join('') || '<div class="scout-report-card muted">No scouting reports yet.</div>'}
+                        </div>
+                    </div>`;
+                })()}
+            `,
+            actions: [{ label: 'Close Academy', type: 'secondary' }],
+            onOpen: () => {
+                document.querySelectorAll('.academy-scout').forEach(btn => btn.addEventListener('click', () => {
+                    const res = AcademyService.scoutRegion(career, btn.dataset.region, 1000000);
+                    if (!res.ok) { Notifications.error('Scouting Failed', res.reason); return; }
+                    StateManager.set('career', career); StateManager.saveGame(); Modals.close(); showAcademyModal();
+                }));
+                document.querySelectorAll('.academy-sign').forEach(btn => btn.addEventListener('click', () => {
+                    const res = AcademyService.signProspect(career, btn.dataset.report, btn.dataset.id);
+                    if (!res.ok) { Notifications.error('Signing Failed', res.reason); return; }
+                    StateManager.set('career', career); StateManager.saveGame(); Modals.close(); showAcademyModal();
+                }));
+                document.querySelectorAll('.academy-reserve').forEach(btn => btn.addEventListener('click', () => { AcademyService.promoteToReserve(career, btn.dataset.id); StateManager.set('career', career); StateManager.saveGame(); Modals.close(); showAcademyModal(); }));
+                document.querySelectorAll('.academy-promote').forEach(btn => btn.addEventListener('click', () => { AcademyService.promoteToMainTeam(career, btn.dataset.id, 1); StateManager.set('career', career); StateManager.saveGame(); Modals.close(); showAcademyModal(); }));
+                document.querySelectorAll('.academy-release').forEach(btn => btn.addEventListener('click', () => { AcademyService.releaseAcademyDriver(career, btn.dataset.id); StateManager.set('career', career); StateManager.saveGame(); Modals.close(); showAcademyModal(); }));
+            }
+        });
+    }
+
     function showTeamModal() {
         const career = StateManager.get('career');
         Modals.open({
@@ -1385,7 +1715,7 @@ window.DashboardScreen = (() => {
                         ${career.drivers.map(d => `
                             <div style="display: flex; padding: var(--space-sm) var(--space-md); background: var(--surface-1); border-radius: 4px; margin-bottom: 4px; align-items: center;">
                                 <span style="margin-right: var(--space-sm);">${d.flag}</span>
-                                <span style="flex: 1; font-family: 'Rajdhani'; font-weight: 600;">${escapeHTML(d.name)}</span>
+                                <span style="flex: 1; font-family: 'Rajdhani'; font-weight: 600;">${escapeHTML(d.name)}<br><small style="color:${d.freeAgent || d.contractYears <= 0 ? '#FF0033' : '#FFD700'}; font-family:Orbitron;">${d.contractYears || 0}Y • $${formatMoney(d.salary || 0)} • ${d.contractStatus || 'ACTIVE'}</small><br><small style="color:#00BFFF; font-family:Orbitron;">AGE ${d.age} • POT ${d.potentialRating || d.rating} • PEAK ${d.peakAgeStart || 26}-${d.peakAgeEnd || 33}</small></span>
                                 <span style="color: var(--gray-500); font-size: 12px;">Rating ${d.rating}</span>
                             </div>
                         `).join('')}
@@ -1395,14 +1725,20 @@ window.DashboardScreen = (() => {
                         <h3 style="font-family: 'Orbitron'; font-size: 13px; color: var(--gray-400); margin-bottom: var(--space-sm);">STAFF</h3>
                         ${Object.entries(career.staff).map(([role, s]) => s ? `
                             <div style="display: flex; padding: var(--space-sm) var(--space-md); background: var(--surface-1); border-radius: 4px; margin-bottom: 4px; align-items: center;">
-                                <span style="flex: 1; font-family: 'Rajdhani';">${escapeHTML(s.name)}</span>
+                                <span style="flex: 1; font-family: 'Rajdhani';">${escapeHTML(s.name)}<br><small style="color:${s.freeAgent || s.contractYears <= 0 ? '#FF0033' : '#FFD700'}; font-family:Orbitron;">${s.contractYears || 0}Y • $${formatMoney(s.salary || 0)} • ${s.contractStatus || 'ACTIVE'}</small></span>
+                                <button class="btn btn-glow staff-renew-btn" data-staff-renew="${role}" style="font-size:9px;padding:5px 8px;">RENEW</button>
                                 <span style="color: var(--gray-500); font-size: 11px;">${role}</span>
                             </div>
                         ` : '').join('')}
                     </div>
                 </div>
             `,
-            actions: [{ label: 'Close', type: 'secondary' }]
+            actions: [{ label: 'Close', type: 'secondary' }],
+            onOpen: () => {
+                document.querySelectorAll('[data-staff-renew]').forEach(btn => {
+                    btn.addEventListener('click', () => renewStaffContract(btn.dataset.staffRenew));
+                });
+            }
         });
     }
 
@@ -1510,16 +1846,37 @@ window.DashboardScreen = (() => {
         career.budget = (career.budget || 0) + 35000000;
         career._lastSponsorOutcome = null;
 
-        // --- SILLY SEASON: Reshuffle AI Grid ---
-        if (typeof SillySeason !== 'undefined') {
-            const newGrid = SillySeason.processSeasonEnd(career);
-            if (newGrid) {
-                career.allTeams = newGrid;
-                // Re-initialize standings for the new grid
-                if (typeof StateManager !== 'undefined' && StateManager.initChampionshipStandings) {
-                    career.championship = StateManager.initChampionshipStandings(newGrid);
-                }
+        // --- DRIVER DEVELOPMENT + CONTRACTS + SILLY SEASON ---
+        if (typeof DriverDevelopmentService !== 'undefined') {
+            const devResult = DriverDevelopmentService.processSeasonEnd(career);
+            if (devResult?.developmentLog?.length) console.log('[DriverDevelopment]', devResult.developmentLog);
+            if (devResult?.retirements?.length) console.log('[DriverRetirements]', devResult.retirements);
+            if (devResult?.rookies?.length) console.log('[Rookies]', devResult.rookies);
+        }
+        if (typeof SponsorService !== 'undefined') {
+            const sponsorResult = SponsorService.processSeasonEnd(career);
+            SponsorService.processAI(career);
+            if (sponsorResult?.expired?.length) console.log('[Sponsors] Expired:', sponsorResult.expired.map(s => s.name));
+        }
+        if (typeof FacilityService !== 'undefined') {
+            const facilityResult = FacilityService.processSeasonEnd(career);
+            if (facilityResult?.construction?.completed?.length || facilityResult?.ai?.log?.length) console.log('[Facilities]', facilityResult);
+        }
+        if (typeof AcademyService !== 'undefined') {
+            const academyResult = AcademyService.processSeasonEnd(career);
+            if (academyResult?.log?.length) console.log('[Academy]', academyResult.log);
+        }
+        if (typeof ContractService !== 'undefined') {
+            const contractResult = ContractService.processSeasonEnd(career);
+            if (contractResult?.movementLog?.length) {
+                console.log('[Contracts] Personnel movement:', contractResult.movementLog);
             }
+        } else if (typeof SillySeason !== 'undefined') {
+            const newGrid = SillySeason.processSeasonEnd(career);
+            if (newGrid) career.allTeams = newGrid;
+        }
+        if (typeof StateManager !== 'undefined' && StateManager.initChampionshipStandings) {
+            career.championship = StateManager.initChampionshipStandings(career.allTeams);
         }
 
         if (typeof CalendarService !== 'undefined') {
@@ -1586,6 +1943,84 @@ window.DashboardScreen = (() => {
     }
 
     /* === UTILS === */
+    function getChampionshipSnapshot(career, constructorPos) {
+        const standings = [...(career.championship?.constructorStandings || [])].sort((a, b) => (b.points || 0) - (a.points || 0));
+        const mine = standings.find(c => c.teamId === career.team?.id) || { points: 0, wins: 0, podiums: 0 };
+        const leader = standings[0] || mine;
+        const ahead = standings[constructorPos - 2];
+        const behind = standings[constructorPos] || null;
+        let gapText = 'LEADER';
+        if (constructorPos > 1 && leader) gapText = `-${Math.max(0, (leader.points || 0) - (mine.points || 0))} to P1`;
+        else if (behind) gapText = `+${Math.max(0, (mine.points || 0) - (behind.points || 0))} ahead P2`;
+        const recent = (career.raceHistory || []).slice(-5).map(r => `P${r.playerBestPosition || '-'}`);
+        return {
+            points: mine.points || 0,
+            wins: mine.wins || 0,
+            podiums: mine.podiums || 0,
+            gapText,
+            form: recent.length ? recent.join(' ') : '—'
+        };
+    }
+
+    function getHQMaintenance(career) {
+        return (typeof FacilityService !== 'undefined') ? FacilityService.calculateBenefits(career).maintenanceCost : 0;
+    }
+
+    function renderHQLevelSummary(career) {
+        const f = career.headquarters?.facilities || {};
+        const item = (key, label) => `<span>${label} Lv.${f[key]?.level || 1}</span>`;
+        return [
+            item('simulation', 'Simulator'),
+            item('aerodynamics', 'Aero Center'),
+            item('driverDevelopment', 'Academy'),
+            item('manufacturing', 'Factory')
+        ].join('');
+    }
+
+    function renderMiniTrackLayout(track, career) {
+        const teamColor = career?.team?.color || '#00FF41';
+        return `
+            <div class="cal-track-mini-layout">
+                <svg viewBox="0 0 700 600" preserveAspectRatio="xMidYMid meet">
+                    <path d="${track.svgPath}" fill="none" stroke="rgba(255,255,255,.13)" stroke-width="18" stroke-linecap="round" stroke-linejoin="round"/>
+                    <path d="${track.svgPath}" fill="none" stroke="#00D4FF" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" opacity=".9"/>
+                    <path d="${track.svgPath}" fill="none" stroke="${teamColor}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" opacity=".9"/>
+                </svg>
+            </div>`;
+    }
+
+    function renderTrackPreview(track, career) {
+        if (!track?.svgPath) return '';
+        const teamColor = career?.team?.color || '#00FF41';
+        return `
+            <div class="next-race-track-preview" title="${escapeHTML(track.name)} layout">
+                <svg viewBox="0 0 700 600" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+                    <path d="${track.svgPath}" fill="none" stroke="rgba(255,255,255,0.12)" stroke-width="18" stroke-linejoin="round" stroke-linecap="round"/>
+                    <path d="${track.svgPath}" fill="none" stroke="#00D4FF" stroke-width="7" stroke-linejoin="round" stroke-linecap="round" opacity="0.92"/>
+                    <path d="${track.svgPath}" fill="none" stroke="${teamColor}" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" opacity="0.85"/>
+                    <circle cx="100" cy="100" r="5" fill="#FF0033" opacity="0.9"/>
+                </svg>
+            </div>
+        `;
+    }
+
+    function getFacilityRating(career) {
+        if (typeof FacilityService !== 'undefined') FacilityService.ensureCareerFacilities(career);
+        const facilities = career?.headquarters?.facilities || {};
+        const levels = Object.values(facilities).map(f => f.level || 1);
+        return Math.round((levels.reduce((sum, l) => sum + l, 0) / Math.max(1, levels.length)) * 10);
+    }
+
+    function getActiveUpgrades(career) {
+        return Object.entries(career?.headquarters?.facilities || {}).filter(([, f]) => !!f.upgrade);
+    }
+
+    function getNextCompletionDays(career) {
+        const weeks = getActiveUpgrades(career).map(([, f]) => f.upgrade?.weeksRemaining).filter(Number.isFinite);
+        if (!weeks.length) return null;
+        return Math.min(...weeks) * 7;
+    }
+
     function calculateOverall(stats) {
         const sum = Object.values(stats).reduce((a, b) => a + b, 0);
         return Math.round(sum / Object.keys(stats).length);
@@ -1664,11 +2099,14 @@ window.DashboardScreen = (() => {
             }
             .dashboard-card {
                 background: var(--surface-glass);
-                border: 1px solid var(--border-subtle);
+                border: 1px solid color-mix(in srgb, var(--team-primary, #00FF41) 18%, var(--border-subtle));
                 border-radius: var(--radius-lg);
                 padding: var(--space-lg);
             }
-            .dashboard-next-race { grid-column: span 1; grid-row: span 2; }
+            .btn-glow { border-color: var(--team-primary, #00FF41); color: var(--team-primary, #00FF41); }
+            .dashboard-next-race { grid-column: span 1; grid-row: span 2; overflow: hidden; }
+            .sponsor-dashboard-card { grid-column: span 2; min-height: 245px; }
+            .quick-actions-card { grid-column: 1 / -1; width: min(100%, 1120px); justify-self: center; }
             .calendar-card { grid-column: 1 / -1; }
             .card-header-row {
                 display: flex; justify-content: space-between;
@@ -1692,6 +2130,26 @@ window.DashboardScreen = (() => {
             .next-race-country {
                 font-family: 'Rajdhani'; font-size: 12px;
                 color: var(--gray-500);
+            }
+            .next-race-track-preview {
+                width: 100%;
+                height: 88px;
+                margin: 8px 0 7px;
+                border-radius: 10px;
+                background:
+                    radial-gradient(circle at 50% 50%, rgba(0, 212, 255, 0.10), transparent 62%),
+                    linear-gradient(135deg, rgba(0,0,0,0.62), rgba(12,18,28,0.82));
+                border: 1px solid rgba(0, 212, 255, 0.24);
+                box-shadow: inset 0 0 18px rgba(0, 212, 255, 0.06), 0 0 14px rgba(0, 128, 255, 0.08);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                overflow: hidden;
+            }
+            .next-race-track-preview svg {
+                width: 96%;
+                height: 92%;
+                filter: drop-shadow(0 0 7px rgba(0,212,255,0.55));
             }
             .next-race-stats {
                 display: grid; grid-template-columns: repeat(4, 1fr);
@@ -1761,6 +2219,13 @@ window.DashboardScreen = (() => {
                 font-family: 'Rajdhani'; color: var(--gray-400);
                 font-size: 12px;
             }
+            .team-accent-block { border: 1px solid color-mix(in srgb, var(--team-primary) 55%, transparent); box-shadow: inset 0 0 18px color-mix(in srgb, var(--team-primary) 10%, transparent); }
+            .champ-info-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; }
+            .champ-info-grid div { background: var(--surface-1); border-radius: 6px; padding: 7px 8px; }
+            .champ-info-grid span { display:block; font-family:Orbitron; font-size:8px; color:var(--gray-500); text-transform:uppercase; letter-spacing:1px; }
+            .champ-info-grid b { font-family:Rajdhani; font-size:13px; color:var(--white); }
+            .hq-level-summary { display:grid; grid-template-columns:repeat(2,1fr); gap:4px; margin-top:6px; }
+            .hq-level-summary span { background:rgba(255,215,0,.08); color:#FFD700; border:1px solid rgba(255,215,0,.18); border-radius:4px; padding:3px 5px; font-family:Orbitron; font-size:8px; text-align:center; }
             .driver-standings-mini {
                 display: flex; flex-direction: column; gap: 4px;
             }
@@ -1778,17 +2243,85 @@ window.DashboardScreen = (() => {
                 font-family: 'Orbitron'; font-weight: 700;
                 color: var(--gray-300);
             }
+            .sponsor-card-content {
+                display: grid;
+                grid-template-columns: minmax(230px, 0.9fr) minmax(360px, 1.4fr);
+                gap: 18px;
+                align-items: stretch;
+                min-height: 178px;
+            }
+            .sponsor-primary-panel {
+                background: linear-gradient(135deg, rgba(255,215,0,0.12), rgba(0,0,0,0.28));
+                border: 1px solid rgba(255,215,0,0.32);
+                border-radius: 12px;
+                padding: 16px;
+                display: flex;
+                flex-direction: column;
+                justify-content: center;
+            }
+            .sponsor-main-name {
+                font-family: Orbitron;
+                font-size: clamp(18px, 1.7vw, 26px);
+                line-height: 1.1;
+                font-weight: 900;
+                color: #FFD700;
+                margin: 8px 0;
+                overflow-wrap: anywhere;
+            }
+            .sponsor-meta-line {
+                font-family: Orbitron;
+                font-size: 10px;
+                color: var(--gray-400);
+                letter-spacing: 1px;
+            }
+            .sponsor-detail-grid {
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+                gap: 10px;
+            }
+            .sponsor-detail-row {
+                background: var(--surface-1);
+                border: 1px solid rgba(255,255,255,0.08);
+                border-radius: 8px;
+                padding: 10px 12px;
+                min-height: 58px;
+            }
+            .sponsor-detail-row span {
+                display: block;
+                font-family: Orbitron;
+                font-size: 9px;
+                color: var(--gray-500);
+                letter-spacing: 1px;
+                text-transform: uppercase;
+                margin-bottom: 5px;
+            }
+            .sponsor-detail-row b {
+                font-family: Rajdhani;
+                font-size: 15px;
+                line-height: 1.05;
+                color: var(--white);
+                overflow-wrap: anywhere;
+            }
+            .quick-actions-card .card-label { text-align: center; margin-bottom: 14px; }
             .action-grid {
-                display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-sm);
+                display: grid;
+                grid-template-columns: repeat(4, minmax(0, 1fr));
+                gap: 12px;
+                align-items: stretch;
             }
             .action-btn {
                 background: var(--surface-1);
                 border: 1px solid var(--border-subtle);
                 border-radius: var(--radius-md);
-                padding: var(--space-md);
+                padding: 14px 12px;
+                min-height: 106px;
                 cursor: pointer;
                 transition: all 0.2s ease;
                 color: white; text-align: center;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
             }
             .action-btn:hover {
                 border-color: var(--green);
@@ -1805,37 +2338,127 @@ window.DashboardScreen = (() => {
                 margin-top: 2px;
             }
             .calendar-list {
-                display: flex; flex-direction: column; gap: 2px;
-                max-height: 240px; overflow-y: auto;
+                display: flex; flex-direction: column; gap: 6px;
+                max-height: 420px; overflow-y: auto;
             }
             .calendar-row {
-                display: flex; align-items: center;
-                gap: var(--space-sm); padding: 6px var(--space-sm);
-                background: var(--surface-1); border-radius: 4px;
+                display: grid;
+                grid-template-columns: 42px 28px 64px minmax(210px,1fr) 78px 78px 72px;
+                align-items: center;
+                gap: 10px;
+                padding: 8px 10px;
+                background: linear-gradient(135deg, rgba(20,20,28,.82), rgba(8,8,12,.94));
+                border: 1px solid rgba(255,255,255,.07);
+                border-radius: 10px;
                 font-size: 12px;
+                min-height: 74px;
+                transition: .2s ease;
             }
-            .calendar-row.past { opacity: 0.5; }
+            .calendar-row.past { opacity: 0.62; }
             .calendar-row.current {
-                background: rgba(0,255,65,0.1);
+                background: linear-gradient(135deg, rgba(0,255,65,0.13), rgba(0,128,255,0.08));
                 border: 1px solid var(--green);
+                box-shadow: 0 0 18px rgba(0,255,65,.16), inset 0 0 18px rgba(0,255,65,.04);
             }
+            .calendar-row.current:hover { transform: translateY(-1px); }
             .cal-round {
-                font-family: 'Orbitron'; font-weight: 700;
-                color: var(--gray-500); width: 30px;
+                font-family: 'Orbitron'; font-weight: 900;
+                color: var(--gray-500); width: 36px;
             }
-            .cal-flag { font-size: 14px; }
-            .cal-name { flex: 1; font-family: 'Rajdhani'; }
+            .cal-flag { font-size: 18px; }
+            .cal-track-mini-layout { width: 62px; height: 42px; border-radius: 8px; background: rgba(0,0,0,.34); border: 1px solid rgba(0,212,255,.18); display:flex; align-items:center; justify-content:center; overflow:hidden; }
+            .cal-track-mini-layout svg { width: 95%; height: 95%; filter: drop-shadow(0 0 5px rgba(0,212,255,.5)); }
+            .cal-name { min-width: 0; font-family: 'Rajdhani'; }
+            .cal-track-title { font-weight: 800; font-size: 14px; color: var(--white); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .cal-track-info { font-size: 10px; color: var(--gray-500); text-transform: uppercase; letter-spacing: .5px; margin-top: 2px; }
+            .cal-distance, .cal-laps { font-family: Orbitron; font-size: 10px; color: var(--gray-300); text-align: center; }
+            .cal-status { text-align: center; }
             .cal-result {
-                font-family: 'Orbitron'; font-weight: 700;
+                font-family: 'Orbitron'; font-weight: 800;
                 color: var(--green);
             }
             .cal-next {
-                font-family: 'Orbitron'; font-weight: 700;
+                font-family: 'Orbitron'; font-weight: 800;
                 color: var(--green); font-size: 10px;
                 background: rgba(0,255,65,0.2);
-                padding: 2px 6px; border-radius: 3px;
+                padding: 4px 8px; border-radius: 999px;
             }
             .cal-upcoming { color: var(--gray-700); }
+            @media (max-width: 1200px) {
+                .sponsor-dashboard-card { grid-column: 1 / -1; }
+                .sponsor-card-content { grid-template-columns: 1fr 1.35fr; }
+                .action-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+            }
+            @media (max-width: 860px) {
+                .sponsor-card-content { grid-template-columns: 1fr; }
+                .sponsor-detail-grid { grid-template-columns: 1fr 1fr; }
+                .action-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+                .calendar-row { grid-template-columns: 38px 26px 62px minmax(150px,1fr) 68px 68px 64px; }
+            }
+            @media (max-width: 520px) {
+                .sponsor-detail-grid { grid-template-columns: 1fr; }
+                .action-grid { grid-template-columns: 1fr; }
+                .next-race-track-preview { height: 74px; }
+                .calendar-row { grid-template-columns: 34px 24px 58px 1fr 54px; gap: 7px; }
+                .cal-distance, .cal-status { display: none; }
+                .cal-track-info { font-size: 9px; }
+            }
+
+            /* === PREMIUM ACADEMY / MARKET REFINEMENTS === */
+            .academy-hub { display:flex; flex-direction:column; gap:16px; font-family:Rajdhani; }
+            .academy-command-row { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; }
+            .academy-stat { background:linear-gradient(135deg,rgba(0,191,255,.12),rgba(0,0,0,.35)); border:1px solid rgba(0,191,255,.28); border-radius:12px; padding:14px; }
+            .academy-stat span { display:block; font-family:Orbitron; font-size:9px; color:var(--gray-500); letter-spacing:1px; text-transform:uppercase; }
+            .academy-stat b { font-family:Orbitron; color:#00BFFF; font-size:20px; }
+            .featured-prospect-card { display:grid; grid-template-columns:86px 1fr 160px; gap:16px; align-items:center; background:linear-gradient(135deg,rgba(0,255,65,.08),rgba(0,128,255,.08),rgba(0,0,0,.45)); border:1px solid rgba(0,255,65,.32); border-radius:16px; padding:18px; }
+            .prospect-avatar { width:76px; height:76px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:38px; background:rgba(255,255,255,.06); border:2px solid rgba(0,191,255,.4); }
+            .prospect-main h2 { font-family:Orbitron; margin:4px 0; }
+            .prospect-sub { color:var(--gray-300); font-weight:700; }
+            .prospect-potential { color:#FFD700; font-family:Orbitron; font-size:12px; margin-top:4px; }
+            .academy-traits { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
+            .academy-traits span { background:rgba(255,215,0,.12); color:#FFD700; border:1px solid rgba(255,215,0,.3); border-radius:999px; padding:3px 8px; font-size:10px; font-family:Orbitron; }
+            .trend-box { background:rgba(0,0,0,.35); border:1px solid rgba(255,255,255,.1); border-radius:12px; padding:12px; text-align:center; }
+            .trend-box span { display:block; font-family:Orbitron; font-size:9px; color:var(--gray-500); }
+            .trend-box b { color:#00FF41; font-family:Orbitron; }
+            .academy-filter-row { display:flex; flex-wrap:wrap; gap:8px; align-items:center; font-family:Orbitron; font-size:10px; color:var(--gray-400); }
+            .academy-table-wrap { overflow:auto; border:1px solid rgba(255,255,255,.08); border-radius:12px; }
+            .academy-table { width:100%; border-collapse:collapse; font-size:13px; }
+            .academy-table th { font-family:Orbitron; color:var(--gray-500); font-size:10px; text-align:left; padding:10px; background:rgba(255,255,255,.04); }
+            .academy-table td { padding:10px; border-top:1px solid rgba(255,255,255,.05); }
+            .scouting-command { display:grid; grid-template-columns:220px 1fr; gap:14px; background:var(--surface-1); border-radius:12px; padding:14px; }
+            .scout-region-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; }
+            .scouting-reports-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:10px; }
+            .scout-report-card { background:rgba(255,215,0,.06); border:1px solid rgba(255,215,0,.25); border-radius:12px; padding:12px; }
+            .report-prospect { display:flex; justify-content:space-between; gap:8px; margin-top:8px; font-size:12px; }
+            .market-command-bar { display:flex; justify-content:space-between; gap:16px; align-items:center; background:linear-gradient(135deg,rgba(0,128,255,.14),rgba(0,255,65,.08)); border:1px solid rgba(0,128,255,.32); border-radius:14px; padding:14px; }
+            .market-kicker { font-family:Orbitron; color:#00BFFF; font-size:10px; font-weight:900; letter-spacing:2px; text-transform:uppercase; }
+            .market-controls-row { display:flex; gap:10px; flex-wrap:wrap; }
+            .market-section-tabs { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; font-family:Orbitron; font-size:10px; color:#FFD700; text-align:center; }
+            .market-section-tabs span { background:rgba(255,215,0,.08); border:1px solid rgba(255,215,0,.22); border-radius:8px; padding:8px; }
+            .market-comparison-panel { display:none; background:rgba(0,0,0,.35); border:1px solid rgba(255,255,255,.1); border-radius:12px; padding:12px; }
+            .market-comparison-panel.active { display:block; }
+            .market-comparison-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-top:8px; }
+            .compare-card { background:var(--surface-1); border-radius:10px; padding:10px; display:flex; flex-direction:column; gap:4px; font-family:Orbitron; font-size:10px; }
+            .market-pro-driver-card { background:linear-gradient(135deg,rgba(20,20,28,.88),rgba(8,8,12,.97)); border:1px solid rgba(0,128,255,.45); border-radius:14px; padding:14px; display:flex; flex-direction:column; gap:10px; transition:.2s ease; }
+            .market-pro-driver-card:hover { transform:translateY(-3px); border-color:#00FF41; box-shadow:0 10px 30px rgba(0,255,65,.08); }
+            .market-pro-driver-card.disabled { opacity:.55; }
+            .market-card-topline,.market-card-hero { display:flex; justify-content:space-between; align-items:center; gap:10px; }
+            .compare-chip { font-family:Orbitron; font-size:9px; color:var(--gray-400); }
+            .interest-badge { font-family:Orbitron; font-size:9px; border-radius:999px; padding:3px 8px; background:rgba(255,215,0,.12); color:#FFD700; }
+            .interest-badge.high { color:#00FF41; background:rgba(0,255,65,.12); }
+            .interest-badge.low { color:var(--gray-400); }
+            .market-driver-flag { font-size:32px; }
+            .market-driver-main { flex:1; min-width:0; }
+            .market-driver-name { font-family:Orbitron; font-weight:900; color:#fff; font-size:16px; }
+            .market-driver-sub { font-size:12px; color:var(--gray-400); }
+            .market-ovr-pill { width:58px;height:58px;border-radius:50%;border:2px solid #00FF41; display:flex; flex-direction:column; align-items:center; justify-content:center; color:#00FF41; font-family:Orbitron; font-weight:900; }
+            .market-ovr-pill span { font-size:8px; color:var(--gray-500); }
+            .market-card-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:8px; }
+            .market-card-grid div { background:rgba(255,255,255,.04); border-radius:8px; padding:8px; }
+            .market-card-grid span { display:block; font-family:Orbitron; font-size:8px; color:var(--gray-500); text-transform:uppercase; }
+            .market-card-grid b { color:#fff; }
+            .market-trait-line { color:#FFD700; font-size:11px; min-height:16px; }
+            @media(max-width:900px){ .academy-command-row,.featured-prospect-card,.scouting-command,.scouting-reports-grid,.market-command-bar{grid-template-columns:1fr; display:grid;} .scout-region-grid,.market-comparison-grid{grid-template-columns:1fr;} }
 
             /* === DRIVER MARKET STYLES === */
             .market-modal {

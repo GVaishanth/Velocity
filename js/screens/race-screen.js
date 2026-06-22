@@ -239,26 +239,17 @@ window.RaceScreen = (() => {
         const sp = career.activeSponsor;
         const pCars = RaceEngine.getLocalPlayerCars();
         const pRes = [...pCars].sort((a, b) => a.position - b.position);
-
+        const points = pRes.reduce((sum, c) => sum + (c.position <= 10 ? [25,18,15,12,10,8,6,4,2,1][c.position-1] || 0 : 0), 0);
+        const obj = sp.objective || {};
         let met = false;
-        let progressStr = '';
-
-        if (sp.id === 'sp1') { // Double Top-10
-            const inPoints = pRes.filter(c => c.position <= 10 && c.status !== 'DNF').length;
-            met = inPoints >= 2;
-            progressStr = `CARS IN POINTS: ${inPoints}/2`;
-        } else if (sp.id === 'sp2') { // Podium
-            met = pRes.some(c => c.position <= 3 && c.status !== 'DNF');
-            progressStr = met ? 'PODIUM SECURED' : 'CHASING PODIUM';
-        } else if (sp.id === 'sp3') { // Fastest Lap
-            const state = RaceEngine.getState();
-            met = pRes.some(c => c.id === state?.fastestLapDriverId);
-            progressStr = met ? 'FASTEST LAP HELD' : 'PURSUING FL';
-        } else if (sp.id === 'sp4') { // Double Podium
-            const podiums = pRes.filter(c => c.position <= 3 && c.status !== 'DNF').length;
-            met = podiums >= 2;
-            progressStr = `PODIUMS: ${podiums}/2`;
-        }
+        let progressStr = obj.label || obj.type || 'OBJECTIVE';
+        if (obj.type === 'TOP_10') { const count = pRes.filter(c => c.position <= 10 && c.status !== 'DNF').length; met = count >= 1; progressStr = `TOP 10: ${count}/1`; }
+        else if (obj.type === 'DOUBLE_TOP_10') { const count = pRes.filter(c => c.position <= 10 && c.status !== 'DNF').length; met = count >= 2; progressStr = `TOP 10: ${count}/2`; }
+        else if (obj.type === 'POINTS') { met = points >= (obj.target || 1); progressStr = `POINTS: ${points}/${obj.target || 1}`; }
+        else if (obj.type === 'PODIUM') { met = pRes.some(c => c.position <= 3 && c.status !== 'DNF'); progressStr = met ? 'PODIUM SECURED' : 'CHASING PODIUM'; }
+        else if (obj.type === 'WIN') { met = pRes.some(c => c.position === 1 && c.status !== 'DNF'); progressStr = met ? 'WINNING' : 'NEED WIN'; }
+        else if (obj.type === 'Q3') { met = true; progressStr = 'Q3 TARGET TRACKED'; }
+        else if (obj.type === 'BEAT_RIVAL') { progressStr = 'BEAT RIVAL'; }
 
         statusEl.textContent = progressStr;
         statusEl.style.color = met ? '#00FF41' : '#FFD700';
@@ -801,23 +792,8 @@ window.RaceScreen = (() => {
         career.rdPoints = (career.rdPoints || 0) + 100 + (playerPoints * 10);
         career.budget = Math.max(0, (career.budget || 0) + 500000 + (playerPoints * 100000));
 
-        if (career.activeSponsor) {
-            const sp = career.activeSponsor;
-            let goalMet = false;
-
-            const pRes = [...playerResults].sort((a, b) => (a?.position || 99) - (b?.position || 99));
-            if (sp.id === 'sp1') { goalMet = pRes.length >= 2 && pRes[0]?.position <= 10 && pRes[1]?.position <= 10; }
-            else if (sp.id === 'sp2') { goalMet = pRes.some(x => x?.position <= 3); }
-            else if (sp.id === 'sp3') { goalMet = pRes.some(x => x?.fastestLapBonus > 0 || x?.fastestLap); }
-            else if (sp.id === 'sp4') { goalMet = pRes.length >= 2 && pRes[0]?.position <= 3 && pRes[1]?.position <= 3; }
-
-            if (goalMet) {
-                career.budget += sp.payout || 2500000;
-                career._lastSponsorOutcome = { met: true, name: sp.name, amount: sp.payout };
-            } else {
-                career.budget = Math.max(0, career.budget - (sp.fine || 1000000));
-                career._lastSponsorOutcome = { met: false, name: sp.name, amount: sp.fine };
-            }
+        if (typeof SponsorService !== 'undefined') {
+            SponsorService.evaluateRace(career, results, StateManager.get('race'));
         }
 
         // career.currentRound = (career.currentRound || 0) + 1; // REMOVED: Now handled by ResultsScreen continue button
