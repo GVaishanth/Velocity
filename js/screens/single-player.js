@@ -287,10 +287,7 @@ window.SinglePlayerScreen = (() => {
                     <div class="form-group">
                         <label class="form-label">Track</label>
                         <select class="select" id="quick-track-select">
-                                <option value="random">🎲 Random Track</option>
-                                ${TRACKS_DATA.map(t => `
-                                    <option value="${t.id}">${t.flag} ${t.name}</option>
-                                `).join('')}
+                                ${window.TrackDisplayUtils?.buildTrackSelectOptions({ includeRandom: true, randomLabel: '🎲 Random Track', selectedId: 'random' }) || ''}
                             </select>
                     </div>
 

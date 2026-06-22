@@ -8,6 +8,9 @@ window.StorageCleanupService = (() => {
     const AUTO_THRESHOLD = 0.80;
     const EMERGENCY_THRESHOLD = 0.95;
     const MP_ROOM_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+    const AUTOSAVE_DETAILED_HISTORY_LIMIT = 8;
+    const AUTOSAVE_SUMMARY_HISTORY_LIMIT = 24;
+    const GENERIC_LOG_LIMIT = 20;
     const ALWAYS_KEEP_PATTERNS = [
         /^velocity_achievements/i,
         /achievement/i,
@@ -91,44 +94,142 @@ window.StorageCleanupService = (() => {
         localStorage.setItem(key, JSON.stringify(wrapper));
     }
 
-    function trimCareer(career, stats) {
+    function summarizeRaceHistoryEntry(entry, stats) {
+        if (!entry || typeof entry !== 'object') return entry;
+        const summarized = { ...entry };
+        const results = Array.isArray(entry.fullResults) ? entry.fullResults : [];
+        if (results.length) {
+            const winner = results.find(r => r?.position === 1);
+            const fastestLap = results.find(r => r?.fastestLap);
+            const podium = results
+                .filter(r => Number.isFinite(r?.position) && r.position <= 3)
+                .sort((a, b) => a.position - b.position)
+                .map(r => r?.driver?.name)
+                .filter(Boolean);
+            const playerTeamId = results.find(r => r?.team?.id && entry.playerTeamId && r.team.id === entry.playerTeamId)?.team?.id || null;
+            const playerRows = playerTeamId ? results.filter(r => r?.team?.id === playerTeamId) : [];
+            const playerBest = playerRows.length ? playerRows.sort((a, b) => (a?.position || 99) - (b?.position || 99))[0] : null;
+            summarized.winner = summarized.winner || winner?.driver?.name || '—';
+            summarized.fastestLap = summarized.fastestLap || fastestLap?.driver?.name || '—';
+            summarized.podium = summarized.podium || podium;
+            if (!summarized.playerBestPosition && Number.isFinite(playerBest?.position)) summarized.playerBestPosition = playerBest.position;
+            if (!summarized.playerPoints && playerRows.length) {
+                summarized.playerPoints = playerRows.reduce((sum, row) => sum + (row?.points || 0) + (row?.fastestLapBonus || 0), 0);
+            }
+        }
+        if (summarized.fullResults) {
+            delete summarized.fullResults;
+            stats.itemsRemoved += 1;
+            stats.bytesSavedApprox += Math.max(1500, results.length * 220);
+        }
+        return summarized;
+    }
+
+    function trimLogArray(obj, key, limit, stats) {
+        if (!Array.isArray(obj?.[key]) || obj[key].length <= limit) return;
+        const removed = obj[key].length - limit;
+        obj[key] = obj[key].slice(-limit);
+        stats.itemsRemoved += removed;
+        stats.bytesSavedApprox += removed * 250;
+    }
+
+    function trimCareer(career, stats, options = {}) {
         if (!career || typeof career !== 'object') return career;
-        if (Array.isArray(career.raceHistory) && career.raceHistory.length > 20) {
-            const removed = career.raceHistory.length - 20;
-            career.raceHistory = career.raceHistory.slice(-20);
-            stats.itemsRemoved += removed;
-            stats.bytesSavedApprox += removed * 2500;
-        }
-        // Keep recent history useful but reduce large embedded result payloads.
+        const detailedLimit = options.detailedHistoryLimit ?? AUTOSAVE_DETAILED_HISTORY_LIMIT;
+        const summaryLimit = options.summaryHistoryLimit ?? AUTOSAVE_SUMMARY_HISTORY_LIMIT;
+
         if (Array.isArray(career.raceHistory)) {
-            career.raceHistory = career.raceHistory.map((r, idx, arr) => {
-                if (idx < arr.length - 20 && r.fullResults) {
-                    const { fullResults, ...rest } = r;
-                    stats.itemsRemoved += 1;
-                    stats.bytesSavedApprox += 1500;
-                    return rest;
-                }
-                return r;
-            });
+            const originalLength = career.raceHistory.length;
+            const startIndex = Math.max(0, originalLength - summaryLimit);
+            if (startIndex > 0) {
+                stats.itemsRemoved += startIndex;
+                stats.bytesSavedApprox += startIndex * 250;
+                career.raceHistory = career.raceHistory.slice(startIndex);
+            }
+            const summaryCutoff = Math.max(0, career.raceHistory.length - detailedLimit);
+            career.raceHistory = career.raceHistory.map((race, idx) => idx < summaryCutoff ? summarizeRaceHistoryEntry(race, stats) : race);
         }
-        if (Array.isArray(career.contractMovementLog) && career.contractMovementLog.length > 30) career.contractMovementLog = career.contractMovementLog.slice(-30);
-        if (Array.isArray(career.driverDevelopmentLog) && career.driverDevelopmentLog.length > 30) career.driverDevelopmentLog = career.driverDevelopmentLog.slice(-30);
-        if (Array.isArray(career.academyDevelopmentLog) && career.academyDevelopmentLog.length > 30) career.academyDevelopmentLog = career.academyDevelopmentLog.slice(-30);
-        if (Array.isArray(career.facilitySeasonLog) && career.facilitySeasonLog.length > 30) career.facilitySeasonLog = career.facilitySeasonLog.slice(-30);
-        if (Array.isArray(career.sponsorHistory) && career.sponsorHistory.length > 20) career.sponsorHistory = career.sponsorHistory.slice(-20);
+
+        trimLogArray(career, 'contractMovementLog', GENERIC_LOG_LIMIT, stats);
+        trimLogArray(career, 'driverDevelopmentLog', GENERIC_LOG_LIMIT, stats);
+        trimLogArray(career, 'academyDevelopmentLog', GENERIC_LOG_LIMIT, stats);
+        trimLogArray(career, 'facilitySeasonLog', GENERIC_LOG_LIMIT, stats);
+        trimLogArray(career, 'sponsorHistory', GENERIC_LOG_LIMIT, stats);
+        trimLogArray(career, 'facilityAILog', GENERIC_LOG_LIMIT, stats);
+
+        if (career._lastSponsorOutcome && typeof career._lastSponsorOutcome === 'object') {
+            career._lastSponsorOutcome = {
+                ok: !!career._lastSponsorOutcome.ok,
+                sponsorId: career._lastSponsorOutcome.sponsor?.id || career._lastSponsorOutcome.sponsorId || null,
+                reward: career._lastSponsorOutcome.reward || 0
+            };
+        }
         return career;
     }
 
-    function trimRace(race, stats) {
+    function trimRace(race, stats, options = {}) {
         if (!race || typeof race !== 'object') return race;
-        if (Array.isArray(race.events) && race.events.length > 100) {
-            const removed = race.events.length - 100;
-            race.events = race.events.slice(-100);
+        const eventLimit = options.eventLimit ?? 40;
+        const recentLimit = options.recentEventLimit ?? 12;
+        if (Array.isArray(race.events) && race.events.length > eventLimit) {
+            const removed = race.events.length - eventLimit;
+            race.events = race.events.slice(-eventLimit);
             stats.itemsRemoved += removed;
             stats.bytesSavedApprox += removed * 250;
         }
-        if (Array.isArray(race.recentEvents) && race.recentEvents.length > 20) race.recentEvents = race.recentEvents.slice(-20);
+        if (Array.isArray(race.recentEvents) && race.recentEvents.length > recentLimit) {
+            const removed = race.recentEvents.length - recentLimit;
+            race.recentEvents = race.recentEvents.slice(-recentLimit);
+            stats.itemsRemoved += removed;
+            stats.bytesSavedApprox += removed * 120;
+        }
+        if (Array.isArray(race.cars)) {
+            race.cars = race.cars.map(car => ({
+                id: car.id,
+                position: car.position,
+                gridPosition: car.gridPosition,
+                lapCount: car.lapCount,
+                trackProgress: car.trackProgress,
+                totalRaceTime: car.totalRaceTime,
+                totalRaceDistance: car.totalRaceDistance,
+                status: car.status,
+                pitPhase: car.pitPhase,
+                pitStopCount: car.pitStopCount,
+                pitRequested: !!car.pitRequested,
+                pitNextLap: !!car.pitNextLap,
+                isPittingNow: !!car.isPittingNow,
+                fuel: car.fuel,
+                fuelLoad: car.fuelLoad,
+                boostLevel: car.boostLevel,
+                driver: car.driver,
+                team: car.team,
+                tireState: car.tireState,
+                strategy: car.strategy,
+                bestLapTime: car.bestLapTime,
+                currentLapTime: car.currentLapTime,
+                gapToLeader: car.gapToLeader,
+                intervalToCarAhead: car.intervalToCarAhead,
+                lastLapTime: car.lastLapTime,
+                dnfReason: car.dnfReason || null
+            }));
+        }
         return race;
+    }
+
+    function cloneData(data) {
+        try { return JSON.parse(JSON.stringify(data)); } catch { return data; }
+    }
+
+    function optimizeAutosaveData(gameState, options = {}) {
+        const stats = { itemsRemoved: 0, bytesSavedApprox: 0, removed: [], optimized: true };
+        const cloned = cloneData(gameState);
+        if (!cloned || typeof cloned !== 'object') return { data: cloned, stats };
+        if (cloned.career) cloned.career = trimCareer(cloned.career, stats, options);
+        if (cloned.race) cloned.race = trimRace(cloned.race, stats, options);
+        if (cloned.ui) delete cloned.ui;
+        if (cloned.debug) delete cloned.debug;
+        stats.kbSavedApprox = Math.round(stats.bytesSavedApprox / 1024);
+        return { data: cloned, stats };
     }
 
     function trimSaveWrapper(key, stats) {
@@ -190,8 +291,8 @@ window.StorageCleanupService = (() => {
             if (!isAlwaysKeep(e.key) && isTemporaryKey(e.key)) removeKey(localStorage, e.key, stats, 'debug/temp/cache/test data');
         });
 
-        // 2. Trim important saves but preserve active career/championship/progress.
-        ['velocity_gamestate', 'velocity_mp_gamestate', 'velocity_autosave', 'velocity_mp_autosave'].forEach(key => {
+        // 2. Trim autosaves only. Primary manual saves remain untouched.
+        ['velocity_autosave', 'velocity_mp_autosave'].forEach(key => {
             if (localStorage.getItem(key)) trimSaveWrapper(key, stats);
         });
 
@@ -225,6 +326,7 @@ window.StorageCleanupService = (() => {
         cleanup,
         autoCleanupIfNeeded,
         trimCareer,
-        trimRace
+        trimRace,
+        optimizeAutosaveData
     };
 })();

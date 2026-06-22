@@ -388,6 +388,11 @@ html, body {
     max-width: 850px;
 }
 
+#modal-box.modal-xl {
+    width: min(94vw, 1240px);
+    max-width: 1240px;
+}
+
 #modal-header {
     font-family: 'Orbitron', sans-serif;
     font-size: var(--text-xl);

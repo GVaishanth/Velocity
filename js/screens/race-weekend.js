@@ -210,14 +210,7 @@ window.RaceWeekendScreen = (() => {
                     <div class="rw-track-location">${escapeHTML(track.country)}${track.city ? ' • ' + escapeHTML(track.city) : ''}</div>
 
                     <div class="rw-track-svg">
-                        <svg viewBox="0 0 700 600" preserveAspectRatio="xMidYMid meet">
-                            <path d="${track.svgPath}"
-                                fill="none" stroke="rgba(0,255,65,0.2)"
-                                stroke-width="14" stroke-linejoin="round" stroke-linecap="round"/>
-                            <path d="${track.svgPath}"
-                                fill="none" stroke="#00FF41"
-                                stroke-width="4" stroke-linejoin="round" stroke-linecap="round"/>
-                        </svg>
+                        ${window.TrackDisplayUtils?.renderWeekendTrackSvg(track, { glow: 'rgba(0,255,65,0.2)', main: '#00FF41' }) || ''}
                     </div>
 
                     <div class="rw-track-info-grid">

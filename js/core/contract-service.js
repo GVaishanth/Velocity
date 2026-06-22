@@ -152,12 +152,43 @@ window.ContractService = (() => {
         return person;
     }
 
-    function getAvailableDrivers(allTeams) {
+    function buildDriverPool(careerOrTeams) {
+        const allTeams = Array.isArray(careerOrTeams) ? careerOrTeams : (careerOrTeams?.allTeams || []);
+        const rookiePool = Array.isArray(careerOrTeams?.rookiePool) ? careerOrTeams.rookiePool : [];
+        const pool = new Map();
+
+        (typeof DRIVERS_DATA !== 'undefined' ? DRIVERS_DATA : []).forEach(driver => {
+            if (driver?.id) pool.set(driver.id, withDriverContract(driver, null, 0));
+        });
+
+        allTeams.forEach(team => {
+            (team?.drivers || []).forEach(driver => {
+                if (driver?.id && !pool.has(driver.id)) pool.set(driver.id, withDriverContract(driver, null, 0));
+            });
+        });
+
+        rookiePool.forEach(driver => {
+            if (driver?.id) pool.set(driver.id, withDriverContract(driver, null, 0));
+        });
+
+        return [...pool.values()].filter(driver => !driver?.retired);
+    }
+
+    function getAvailableDrivers(careerOrTeams, assignedIds = null) {
+        const allTeams = Array.isArray(careerOrTeams) ? careerOrTeams : (careerOrTeams?.allTeams || []);
         const signed = new Set();
-        (allTeams || []).forEach(t => (t.drivers || []).forEach(d => { if (!d.freeAgent && d.contractYears > 0) signed.add(d.id); }));
-        return (typeof DRIVERS_DATA !== 'undefined' ? DRIVERS_DATA : [])
-            .filter(d => !signed.has(d.id))
-            .map(d => withDriverContract(d, null, 0));
+        (allTeams || []).forEach(team => {
+            (team.drivers || []).forEach(driver => {
+                if (!driver) return;
+                if (!driver.freeAgent && driver.contractYears > 0) signed.add(driver.id);
+            });
+        });
+        if (assignedIds instanceof Set) {
+            assignedIds.forEach(id => signed.add(id));
+        }
+        return buildDriverPool(careerOrTeams)
+            .filter(driver => !signed.has(driver.id))
+            .map(driver => withDriverContract(driver, null, 0));
     }
 
     function getAvailableStaff(allTeams, role) {
@@ -169,13 +200,14 @@ window.ContractService = (() => {
             .map(s => withStaffContract(s, null, role, 0));
     }
 
-    function chooseDriverForTeam(team, allTeams) {
-        const available = getAvailableDrivers(allTeams);
+    function chooseDriverForTeam(team, careerOrTeams, assignedIds = null) {
+        const available = getAvailableDrivers(careerOrTeams, assignedIds);
         if (!available.length) return null;
         const rep = team.reputation || team.fanPopularity || 75;
-        available.sort((a, b) => Math.abs((b.rating || 75) - rep) - Math.abs((a.rating || 75) - rep));
+        available.sort((a, b) => Math.abs((a.rating || 75) - rep) - Math.abs((b.rating || 75) - rep));
         const candidates = available.filter(d => Math.abs((d.rating || 75) - rep) <= 18);
         const pick = (candidates.length ? candidates : available).sort((a, b) => (b.rating || 0) - (a.rating || 0))[0];
+        if (assignedIds instanceof Set) assignedIds.add(pick.id);
         return withDriverContract(pick, team.id, 1 + Math.floor(Math.random() * 3));
     }
 
@@ -187,14 +219,69 @@ window.ContractService = (() => {
         return withStaffContract(pick, team.id, role, 1 + Math.floor(Math.random() * 3));
     }
 
+    function detachAssignedAcademyDrivers(career) {
+        const activeIds = new Set((career?.allTeams || []).flatMap(team => (team.drivers || []).map(driver => driver?.id)).filter(Boolean));
+        (career?.allTeams || []).forEach(team => {
+            if (!team.academy) return;
+            team.academy.drivers = (team.academy.drivers || []).filter(driver => driver && !activeIds.has(driver.id));
+            if (team.academy.reserveDriver && activeIds.has(team.academy.reserveDriver.id)) {
+                team.academy.reserveDriver = null;
+            }
+        });
+        const playerTeam = career?.allTeams?.find(team => team.id === career?.team?.id);
+        if (playerTeam) career.academy = playerTeam.academy;
+    }
+
+    function repairActiveDriverRosters(career, movementLog = []) {
+        const allTeams = career?.allTeams || [];
+        const playerTeamId = career?.team?.id;
+        const assignedIds = new Set();
+
+        const assignUniqueDrivers = (team, priority = false) => {
+            const uniqueRoster = [];
+            (team.drivers || []).forEach(driver => {
+                if (!driver || driver.retired) return;
+                if (assignedIds.has(driver.id)) {
+                    if (!priority) movementLog.push(`${team.name} released duplicate driver ${driver.name}`);
+                    return;
+                }
+                const signed = withDriverContract(driver, team.id, driver.contractYears || 1);
+                signed.teamId = team.id;
+                signed.freeAgent = false;
+                signed.contractStatus = signed.contractStatus === 'EXPIRED' ? 'ACTIVE' : signed.contractStatus;
+                uniqueRoster.push(signed);
+                assignedIds.add(signed.id);
+            });
+            team.drivers = uniqueRoster;
+
+            while (team.drivers.length < 2) {
+                const replacement = chooseDriverForTeam(team, career, assignedIds);
+                if (!replacement) break;
+                team.drivers.push(replacement);
+                movementLog.push(`${team.name} signed ${replacement.name}`);
+            }
+        };
+
+        const playerTeam = allTeams.find(team => team.id === playerTeamId);
+        if (playerTeam) assignUniqueDrivers(playerTeam, true);
+        allTeams.filter(team => team.id !== playerTeamId).forEach(team => assignUniqueDrivers(team, false));
+
+        if (playerTeam) career.drivers = playerTeam.drivers;
+        detachAssignedAcademyDrivers(career);
+        return { assignedIds };
+    }
+
     function processSeasonEnd(career) {
         ensureCareerContracts(career);
+        if (career?.contractsLastProcessedSeason === career?.season) {
+            return { career, movementLog: career.contractMovementLog || [], skipped: true };
+        }
+
         const movementLog = [];
         const allTeams = career.allTeams || [];
         const playerTeamId = career.team?.id;
 
         allTeams.forEach(team => {
-            // Yearly budget impact for player; AI gets conceptual budget if present.
             const cost = annualPersonnelCost(team);
             if (team.id === playerTeamId) career.budget = Math.max(0, (career.budget || 0) - cost);
             team.seasonPersonnelExpense = cost;
@@ -203,13 +290,7 @@ window.ContractService = (() => {
             Object.keys(team.staff || {}).forEach(role => expirePerson(team.staff[role]));
 
             if (team.id !== playerTeamId) {
-                team.drivers = team.drivers.filter(d => !d.freeAgent);
-                while (team.drivers.length < 2) {
-                    const newDriver = chooseDriverForTeam(team, allTeams);
-                    if (!newDriver) break;
-                    team.drivers.push(newDriver);
-                    movementLog.push(`${team.name} signed ${newDriver.name}`);
-                }
+                team.drivers = team.drivers.filter(driver => !driver.freeAgent && !driver.retired);
                 ['techDirector', 'strategist', 'pitCrew'].forEach(role => {
                     const current = team.staff?.[role];
                     const weak = !current || current.freeAgent || (current.rating || 70) < 72;
@@ -222,10 +303,14 @@ window.ContractService = (() => {
                         }
                     }
                 });
+            } else {
+                team.drivers = (team.drivers || []).filter(Boolean);
             }
         });
 
-        const playerTeam = allTeams.find(t => t.id === playerTeamId);
+        repairActiveDriverRosters(career, movementLog);
+
+        const playerTeam = allTeams.find(team => team.id === playerTeamId);
         if (playerTeam) {
             career.drivers = playerTeam.drivers;
             career.staff = playerTeam.staff;
@@ -254,6 +339,7 @@ window.ContractService = (() => {
         processSeasonEnd,
         getAvailableDrivers,
         getAvailableStaff,
+        repairActiveDriverRosters,
         formatMoney
     };
 })();

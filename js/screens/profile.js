@@ -9,6 +9,9 @@ window.ProfileScreen = (() => {
     let container = null;
     let isActive = false;
     let currentTab = 'overview';
+    let historySeason = null;
+    let historyView = 'standings';
+    let historyFocus = { type: 'driver', id: null };
 
     /**
      * Initialize the profile screen
@@ -263,59 +266,481 @@ window.ProfileScreen = (() => {
         `;
     }
 
+    function buildHistoryArchive(profile) {
+        const archive = [];
+        const career = StateManager.get('career');
+        const storedHistory = Array.isArray(profile.careerHistory) ? profile.careerHistory : [];
+
+        if (career?.championship && Array.isArray(career.championship.driverStandings)) {
+            archive.push(buildLiveSeasonArchive(career));
+        }
+
+        storedHistory.forEach(season => {
+            if (!archive.some(entry => entry.season === season.season)) {
+                archive.push(buildStoredSeasonArchive(season));
+            }
+        });
+
+        return archive.sort((a, b) => (b.season || 0) - (a.season || 0));
+    }
+
+    function buildLiveSeasonArchive(career) {
+        const trackByRound = new Map((career.raceHistory || []).map((race, index) => [race.round || index + 1, race]));
+        const allTeams = Array.isArray(career.allTeams) ? career.allTeams : [];
+        const driverStatsMap = new Map();
+        const teamStatsMap = new Map();
+
+        (career.championship?.driverStandings || []).forEach(entry => {
+            driverStatsMap.set(entry.driverId, {
+                wins: entry.wins || 0,
+                podiums: entry.podiums || 0,
+                poles: 0,
+                fastestLaps: 0,
+                results: []
+            });
+        });
+
+        (career.championship?.constructorStandings || []).forEach(entry => {
+            teamStatsMap.set(entry.teamId, {
+                wins: entry.wins || 0,
+                podiums: entry.podiums || 0,
+                poles: 0,
+                fastestLaps: 0
+            });
+        });
+
+        const seasonRaceResults = (career.raceHistory || []).map((race, index) => {
+            const track = typeof getTrackById === 'function' ? getTrackById(race.trackId) : null;
+            const fullResults = Array.isArray(race.fullResults) ? race.fullResults : [];
+            const winner = fullResults.find(result => result.position === 1) || null;
+            const fastestLap = fullResults.find(result => result.fastestLap) || null;
+            const poleSitter = race.poleSitterName || race.pole || race.qualifyingWinner || null;
+
+            fullResults.forEach(result => {
+                if (!result?.driver?.id) return;
+                const stats = driverStatsMap.get(result.driver.id) || { wins: 0, podiums: 0, poles: 0, fastestLaps: 0, results: [] };
+                if (result.fastestLap) {
+                    stats.fastestLaps += 1;
+                    const teamStats = teamStatsMap.get(result.team?.id);
+                    if (teamStats) teamStats.fastestLaps += 1;
+                }
+                stats.results.push({
+                    round: race.round || index + 1,
+                    trackName: track?.name || `Round ${race.round || index + 1}`,
+                    position: result.position,
+                    points: (result.points || 0) + (result.fastestLapBonus || 0),
+                    fastestLap: !!result.fastestLap
+                });
+                driverStatsMap.set(result.driver.id, stats);
+            });
+
+            return {
+                round: race.round || index + 1,
+                trackName: track?.name || `Round ${race.round || index + 1}`,
+                winner: winner?.driver?.name || '—',
+                poleSitter: poleSitter || '—',
+                fastestLap: fastestLap?.driver?.name || '—'
+            };
+        });
+
+        const driverStandings = [...(career.championship?.driverStandings || [])]
+            .sort((a, b) => (b.points || 0) - (a.points || 0))
+            .map((entry, index) => ({
+                position: index + 1,
+                driverId: entry.driverId,
+                driverName: entry.driverName,
+                teamId: entry.teamId,
+                teamName: entry.teamName,
+                teamColor: entry.teamColor,
+                wins: entry.wins || 0,
+                podiums: entry.podiums || 0,
+                poles: driverStatsMap.get(entry.driverId)?.poles || 0,
+                fastestLaps: driverStatsMap.get(entry.driverId)?.fastestLaps || 0,
+                points: entry.points || 0,
+                results: driverStatsMap.get(entry.driverId)?.results || []
+            }));
+
+        const constructorStandings = [...(career.championship?.constructorStandings || [])]
+            .sort((a, b) => (b.points || 0) - (a.points || 0))
+            .map((entry, index) => {
+                const team = allTeams.find(item => item.id === entry.teamId);
+                return {
+                    position: index + 1,
+                    teamId: entry.teamId,
+                    teamName: entry.teamName,
+                    teamColor: entry.teamColor,
+                    wins: entry.wins || 0,
+                    podiums: entry.podiums || 0,
+                    poles: teamStatsMap.get(entry.teamId)?.poles || 0,
+                    fastestLaps: teamStatsMap.get(entry.teamId)?.fastestLaps || 0,
+                    points: entry.points || 0,
+                    drivers: (team?.drivers || []).map(driver => driver.name),
+                    teamRating: team?.carStats ? Math.round(Object.values(team.carStats).reduce((sum, value) => sum + value, 0) / Math.max(1, Object.keys(team.carStats).length)) : null,
+                    summary: team?.history || 'Season archive generated from live championship data.'
+                };
+            });
+
+        const overview = {
+            worldChampion: driverStandings[0]?.driverName || '—',
+            constructorsChampion: constructorStandings[0]?.teamName || '—',
+            mostWins: Math.max(0, ...driverStandings.map(driver => driver.wins || 0)),
+            mostPoles: Math.max(0, ...driverStandings.map(driver => driver.poles || 0)),
+            mostPodiums: Math.max(0, ...driverStandings.map(driver => driver.podiums || 0)),
+            mostFastestLaps: Math.max(0, ...driverStandings.map(driver => driver.fastestLaps || 0))
+        };
+
+        return {
+            season: career.season,
+            isActive: true,
+            hasDetailedData: true,
+            label: `Season ${career.season}`,
+            overview,
+            driverStandings,
+            constructorStandings,
+            raceResults: seasonRaceResults,
+            playerTeamId: career.team?.id || null
+        };
+    }
+
+    function buildStoredSeasonArchive(season) {
+        const position = season.position || '—';
+        const points = season.points || 0;
+        const wins = season.wins || 0;
+        return {
+            season: season.season,
+            isActive: false,
+            hasDetailedData: false,
+            label: `Season ${season.season}`,
+            overview: {
+                worldChampion: 'Archived Summary Only',
+                constructorsChampion: position === 1 ? (season.teamName || 'Player Team') : 'Archived Summary Only',
+                mostWins: wins,
+                mostPoles: '—',
+                mostPodiums: '—',
+                mostFastestLaps: '—'
+            },
+            driverStandings: [],
+            constructorStandings: [{
+                position,
+                teamId: `team_${season.season}_${season.teamName || 'player'}`,
+                teamName: season.teamName || 'Player Team',
+                teamColor: season.teamColor || '#FFFFFF',
+                wins,
+                podiums: '—',
+                poles: '—',
+                fastestLaps: '—',
+                points,
+                drivers: [],
+                teamRating: null,
+                summary: position === 1 ? 'Championship-winning campaign archived in summary form.' : `Archived season summary with final position P${position}.`
+            }],
+            raceResults: [],
+            playerTeamId: `team_${season.season}_${season.teamName || 'player'}`,
+            archivedSummary: season
+        };
+    }
+
+    function ensureHistorySelection(archive) {
+        if (!archive.length) {
+            historySeason = null;
+            historyFocus = { type: 'driver', id: null };
+            return null;
+        }
+        if (historySeason === null || !archive.some(season => season.season === historySeason)) {
+            historySeason = archive[0].season;
+        }
+        const selectedSeason = archive.find(season => season.season === historySeason) || archive[0];
+        if (historyView !== 'standings' && historyView !== 'results') historyView = 'standings';
+        if (historyView === 'standings') {
+            const validDriver = selectedSeason.driverStandings.some(driver => driver.driverId === historyFocus.id);
+            const validTeam = selectedSeason.constructorStandings.some(team => team.teamId === historyFocus.id);
+            if (!validDriver && !validTeam) {
+                if (selectedSeason.driverStandings.length) historyFocus = { type: 'driver', id: selectedSeason.driverStandings[0].driverId };
+                else if (selectedSeason.constructorStandings.length) historyFocus = { type: 'team', id: selectedSeason.constructorStandings[0].teamId };
+                else historyFocus = { type: 'driver', id: null };
+            }
+        }
+        return selectedSeason;
+    }
+
+    function renderHistoryOverviewCards(season) {
+        return `
+            <div class="history-overview-grid">
+                <div class="history-overview-card accent"><span>World Champion</span><b>${escapeHTML(season.overview.worldChampion)}</b></div>
+                <div class="history-overview-card"><span>Constructors Champion</span><b>${escapeHTML(season.overview.constructorsChampion)}</b></div>
+                <div class="history-overview-card"><span>Most Wins</span><b>${escapeHTML(String(season.overview.mostWins ?? '—'))}</b></div>
+                <div class="history-overview-card"><span>Most Poles</span><b>${escapeHTML(String(season.overview.mostPoles ?? '—'))}</b></div>
+                <div class="history-overview-card"><span>Most Podiums</span><b>${escapeHTML(String(season.overview.mostPodiums ?? '—'))}</b></div>
+                <div class="history-overview-card"><span>Most Fastest Laps</span><b>${escapeHTML(String(season.overview.mostFastestLaps ?? '—'))}</b></div>
+            </div>
+        `;
+    }
+
+    function renderDriverHistoryTable(season) {
+        if (!season.driverStandings.length) {
+            return `<div class="history-empty-card">Detailed driver classification is not present in this archived save snapshot.</div>`;
+        }
+        return `
+            <div class="history-table-shell">
+                <div class="history-table-title">Driver Championship</div>
+                <div class="history-table-wrap">
+                    <table class="history-data-table">
+                        <thead>
+                            <tr>
+                                <th>Pos</th>
+                                <th>Driver</th>
+                                <th>Team</th>
+                                <th>Wins</th>
+                                <th>Podiums</th>
+                                <th>Poles</th>
+                                <th>Points</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${season.driverStandings.map(driver => `
+                                <tr class="history-row ${historyFocus.type === 'driver' && historyFocus.id === driver.driverId ? 'selected' : ''}" data-history-select="driver:${driver.driverId}">
+                                    <td>P${driver.position}</td>
+                                    <td>${escapeHTML(driver.driverName)}</td>
+                                    <td>${escapeHTML(driver.teamName)}</td>
+                                    <td>${driver.wins}</td>
+                                    <td>${driver.podiums}</td>
+                                    <td>${driver.poles}</td>
+                                    <td>${driver.points}</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        `;
+    }
+
+    function renderConstructorHistoryTable(season) {
+        if (!season.constructorStandings.length) {
+            return `<div class="history-empty-card">No constructor archive is available for this season.</div>`;
+        }
+        return `
+            <div class="history-table-shell">
+                <div class="history-table-title">Constructor Championship</div>
+                <div class="history-table-wrap">
+                    <table class="history-data-table">
+                        <thead>
+                            <tr>
+                                <th>Pos</th>
+                                <th>Team</th>
+                                <th>Wins</th>
+                                <th>Podiums</th>
+                                <th>Poles</th>
+                                <th>Points</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${season.constructorStandings.map(team => `
+                                <tr class="history-row ${historyFocus.type === 'team' && historyFocus.id === team.teamId ? 'selected' : ''}" data-history-select="team:${team.teamId}">
+                                    <td>${String(team.position).startsWith('P') ? team.position : `P${team.position}`}</td>
+                                    <td>${escapeHTML(team.teamName)}</td>
+                                    <td>${escapeHTML(String(team.wins ?? '—'))}</td>
+                                    <td>${escapeHTML(String(team.podiums ?? '—'))}</td>
+                                    <td>${escapeHTML(String(team.poles ?? '—'))}</td>
+                                    <td>${escapeHTML(String(team.points ?? '—'))}</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        `;
+    }
+
+    function renderHistoryRaceResults(season) {
+        if (!season.raceResults.length) {
+            return `<div class="history-empty-card">Race-by-race results were not preserved in this archived season snapshot.</div>`;
+        }
+        return `
+            <div class="history-table-shell full-width">
+                <div class="history-table-title">Season Race Results</div>
+                <div class="history-table-wrap">
+                    <table class="history-data-table">
+                        <thead>
+                            <tr>
+                                <th>Round</th>
+                                <th>Track</th>
+                                <th>Winner</th>
+                                <th>Pole Sitter</th>
+                                <th>Fastest Lap</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${season.raceResults.map(race => `
+                                <tr>
+                                    <td>R${race.round}</td>
+                                    <td>${escapeHTML(race.trackName)}</td>
+                                    <td>${escapeHTML(race.winner)}</td>
+                                    <td>${escapeHTML(race.poleSitter)}</td>
+                                    <td>${escapeHTML(race.fastestLap)}</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        `;
+    }
+
+    function renderHistoryDetailPanel(season) {
+        if (historyFocus.type === 'team') {
+            const team = season.constructorStandings.find(item => item.teamId === historyFocus.id) || season.constructorStandings[0];
+            if (!team) return `<div class="history-empty-card">Select a team to inspect season details.</div>`;
+            return `
+                <div class="history-detail-card">
+                    <div class="history-detail-kicker">Team Overview</div>
+                    <h3>${escapeHTML(team.teamName)}</h3>
+                    <div class="history-detail-grid">
+                        <div><span>Final Position</span><b>${String(team.position).startsWith('P') ? team.position : `P${team.position}`}</b></div>
+                        <div><span>Points</span><b>${escapeHTML(String(team.points ?? '—'))}</b></div>
+                        <div><span>Wins</span><b>${escapeHTML(String(team.wins ?? '—'))}</b></div>
+                        <div><span>Podiums</span><b>${escapeHTML(String(team.podiums ?? '—'))}</b></div>
+                        <div><span>Poles</span><b>${escapeHTML(String(team.poles ?? '—'))}</b></div>
+                        <div><span>Fastest Laps</span><b>${escapeHTML(String(team.fastestLaps ?? '—'))}</b></div>
+                        <div><span>Drivers</span><b>${team.drivers?.length ? escapeHTML(team.drivers.join(', ')) : 'Archived summary only'}</b></div>
+                        <div><span>Team Rating</span><b>${team.teamRating ?? '—'}</b></div>
+                    </div>
+                    <div class="history-summary-block">
+                        <span>Season Summary</span>
+                        <p>${escapeHTML(team.summary || 'No season summary available.')}</p>
+                    </div>
+                </div>
+            `;
+        }
+
+        const driver = season.driverStandings.find(item => item.driverId === historyFocus.id) || season.driverStandings[0];
+        if (!driver) {
+            return `<div class="history-empty-card">Select a driver to inspect season details.</div>`;
+        }
+        return `
+            <div class="history-detail-card">
+                <div class="history-detail-kicker">Driver Overview</div>
+                <h3>${escapeHTML(driver.driverName)}</h3>
+                <div class="history-detail-grid">
+                    <div><span>Team</span><b>${escapeHTML(driver.teamName)}</b></div>
+                    <div><span>Position</span><b>P${driver.position}</b></div>
+                    <div><span>Points</span><b>${driver.points}</b></div>
+                    <div><span>Wins</span><b>${driver.wins}</b></div>
+                    <div><span>Podiums</span><b>${driver.podiums}</b></div>
+                    <div><span>Poles</span><b>${driver.poles}</b></div>
+                    <div><span>Fastest Laps</span><b>${driver.fastestLaps}</b></div>
+                    <div><span>Status</span><b>${driver.position === 1 ? 'Champion' : `P${driver.position}`}</b></div>
+                </div>
+                <div class="history-summary-block">
+                    <span>Season Results</span>
+                    ${driver.results?.length ? `
+                        <div class="history-results-list">
+                            ${driver.results.map(result => `<div>R${result.round} • ${escapeHTML(result.trackName)} • P${result.position} • ${result.points} pts${result.fastestLap ? ' • FL' : ''}</div>`).join('')}
+                        </div>
+                    ` : `<p>Per-round driver results were not preserved in this archive.</p>`}
+                </div>
+            </div>
+        `;
+    }
+
     /**
-     * Tab 3: Career Legacy Timeline
+     * Tab 3: Championship History Archive
      */
     function renderCareerLegacy(profile) {
-        const history = profile.careerHistory || [];
+        const archive = buildHistoryArchive(profile);
 
-        if (history.length === 0) {
+        if (archive.length === 0) {
             return `
                 <div style="text-align: center; padding: 60px 20px; background: var(--surface-1); border-radius: 16px; border: 2px dashed var(--border-medium);">
                     <div style="font-size: 56px; margin-bottom: 16px;">🏎️💨</div>
                     <h3 style="font-family: Orbitron; font-size: 22px; color: var(--yellow); margin-bottom: 12px;">ZERO CAMPAIGNS ON RECORD</h3>
                     <p style="font-family: Rajdhani; font-size: 16px; color: var(--gray-400); max-width: 600px; margin: 0 auto; line-height: 1.5;">
-                        You have not completed a full championship campaign yet. Drop straight into the Paddock in Single Player, assemble your racing machines, and win World Constructor titles to build your immortal legacy!
+                        You have not completed a full championship campaign yet. Start a season to begin building a full historical archive.
                     </p>
                 </div>
             `;
         }
 
+        const selectedSeason = ensureHistorySelection(archive);
         return `
-            <div class="timeline-master-container">
-                ${history.map(season => {
-                    const isChamp = season.position === 1;
-                    const isPodium = season.position === 2 || season.position === 3;
-                    const rounds = season.totalRounds || 5;
-                    const ptsDisplay = season.points !== undefined ? season.points : (isChamp ? rounds * 23 : 45);
-                    const winsDisplay = season.wins !== undefined ? season.wins : (isChamp ? Math.max(1, rounds - 1) : 0);
-                    return `
-                        <div class="timeline-card-item">
-                            <div class="season-badge-dock">
-                                <span class="s-label">SEASON</span>
-                                <span class="s-num">${season.season}</span>
-                            </div>
-
-                            <div class="timeline-info-dock">
-                                <div class="timeline-constructor-title" style="color: ${season.teamColor || '#FFF'};">
-                                    <span style="display: inline-block; width: 6px; height: 26px; background: ${season.teamColor || '#FFF'}; border-radius: 3px;"></span>
-                                    <span>${escapeHTML(season.teamName || 'Independent Constructor')}</span>
-                                </div>
-                                <div class="timeline-stats-row">
-                                    <span>Definitive Summary: Round ${rounds}/${rounds}</span>
-                                    <span>•</span>
-                                    <span style="color: var(--white);">${ptsDisplay} Total Points</span>
-                                    <span>•</span>
-                                    <span style="color: var(--green);">${winsDisplay} Victories</span>
-                                </div>
-                            </div>
-
-                            <div class="timeline-trophy-emblem ${isChamp ? 'champion' : isPodium ? 'podium' : 'standard'}">
-                                <span>${isChamp ? '🏆 WORLD CHAMPIONS' : `P${season.position} OVERALL`}</span>
-                            </div>
+            <style>
+                .history-archive-shell { display:flex; flex-direction:column; gap:16px; }
+                .history-toolbar, .history-panel, .history-detail-card, .history-empty-card { background: linear-gradient(135deg, rgba(20,20,30,0.88), rgba(8,8,14,0.96)); border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; padding: 16px; }
+                .history-toolbar { display:flex; justify-content:space-between; gap:16px; align-items:flex-end; flex-wrap:wrap; }
+                .history-archive-kicker { display:block; font-family: Orbitron; font-size: 10px; letter-spacing: 3px; text-transform: uppercase; color: var(--yellow); }
+                .history-toolbar h2 { font-family: Orbitron; color: var(--white); margin-top: 6px; }
+                .history-season-select { min-width: 180px; }
+                .history-view-tabs { display:flex; gap:8px; flex-wrap:wrap; }
+                .history-view-tab { padding: 8px 12px; border-radius: 999px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: var(--gray-300); cursor:pointer; font-family: Orbitron; font-size: 10px; letter-spacing: 1px; }
+                .history-view-tab.active { color: var(--white); border-color: var(--green); background: rgba(0,255,65,0.12); }
+                .history-overview-grid { display:grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap:10px; }
+                .history-overview-card { background: rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 12px; min-height: 84px; }
+                .history-overview-card.accent { border-color: rgba(0,255,65,0.22); box-shadow: inset 0 0 16px rgba(0,255,65,0.06); }
+                .history-overview-card span, .history-detail-grid span, .history-summary-block span, .history-table-title, .history-detail-kicker { display:block; font-family: Orbitron; font-size: 9px; color: var(--gray-500); letter-spacing: 1px; text-transform: uppercase; }
+                .history-overview-card b { display:block; margin-top: 6px; font-family: Orbitron; font-size: 18px; color: var(--white); line-height: 1.15; overflow-wrap: anywhere; }
+                .history-content-grid { display:grid; grid-template-columns: minmax(0, 1.55fr) minmax(320px, 0.85fr); gap:16px; align-items:start; }
+                .history-tables-stack { display:flex; flex-direction:column; gap:16px; }
+                .history-table-shell.full-width { margin-top:0; }
+                .history-table-wrap { overflow:auto; margin-top:10px; border-radius:12px; border:1px solid rgba(255,255,255,0.08); }
+                .history-data-table { width:100%; border-collapse:collapse; font-family: Rajdhani; font-size: 13px; }
+                .history-data-table th { position: sticky; top: 0; background: rgba(255,255,255,0.05); font-family: Orbitron; font-size: 10px; color: var(--gray-500); text-align:left; padding:10px; }
+                .history-data-table td { padding:10px; border-top:1px solid rgba(255,255,255,0.05); color: var(--white); }
+                .history-row { cursor:pointer; transition: background 0.18s ease; }
+                .history-row:hover, .history-row.selected { background: rgba(0,255,65,0.08); }
+                .history-detail-card h3 { font-family: Orbitron; color: var(--white); font-size: 22px; margin: 6px 0 14px; }
+                .history-detail-grid { display:grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap:10px; }
+                .history-detail-grid div, .history-summary-block { background: rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08); border-radius: 12px; padding:10px 12px; }
+                .history-detail-grid b { display:block; margin-top:4px; font-family: Orbitron; color: var(--white); font-size:13px; line-height:1.2; overflow-wrap:anywhere; }
+                .history-summary-block { margin-top: 12px; }
+                .history-summary-block p { margin-top:8px; color: var(--gray-300); font-family: Rajdhani; line-height:1.45; }
+                .history-results-list { display:flex; flex-direction:column; gap:6px; margin-top:8px; color: var(--gray-300); font-family: Rajdhani; font-size: 13px; }
+                .history-empty-card { color: var(--gray-400); text-align:center; }
+                .history-archive-note { color: var(--gray-400); font-family: Rajdhani; line-height:1.45; }
+                @media (max-width: 1050px) {
+                    .history-overview-grid { grid-template-columns: repeat(2, minmax(0,1fr)); }
+                    .history-content-grid { grid-template-columns: 1fr; }
+                }
+                @media (max-width: 700px) {
+                    .history-overview-grid, .history-detail-grid { grid-template-columns: 1fr; }
+                    .history-toolbar { align-items:stretch; }
+                    .history-view-tabs { width:100%; }
+                }
+            </style>
+            <div class="history-archive-shell">
+                <div class="history-toolbar">
+                    <div>
+                        <div class="history-archive-kicker">CHAMPIONSHIP HISTORY</div>
+                        <h2>${escapeHTML(selectedSeason.label)}</h2>
+                    </div>
+                    <div style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end;">
+                        <label class="history-season-select">
+                            <div class="label" style="margin-bottom:6px;">Season</div>
+                            <select class="select" id="history-season-select">
+                                ${archive.map(season => `<option value="${season.season}" ${season.season === selectedSeason.season ? 'selected' : ''}>${season.season}</option>`).join('')}
+                            </select>
+                        </label>
+                        <div class="history-view-tabs">
+                            <button class="history-view-tab ${historyView === 'standings' ? 'active' : ''}" data-history-view="standings">Standings</button>
+                            <button class="history-view-tab ${historyView === 'results' ? 'active' : ''}" data-history-view="results">Race Results</button>
                         </div>
-                    `;
-                }).join('')}
+                    </div>
+                </div>
+
+                ${renderHistoryOverviewCards(selectedSeason)}
+
+                ${!selectedSeason.hasDetailedData ? `<div class="history-panel history-archive-note">This season is stored as a legacy archive summary. Detailed driver classifications, constructor tables and race-by-race records were not preserved in the original save snapshot.</div>` : ''}
+
+                ${historyView === 'results' ? `
+                    ${renderHistoryRaceResults(selectedSeason)}
+                ` : `
+                    <div class="history-content-grid">
+                        <div class="history-tables-stack">
+                            ${renderDriverHistoryTable(selectedSeason)}
+                            ${renderConstructorHistoryTable(selectedSeason)}
+                        </div>
+                        ${renderHistoryDetailPanel(selectedSeason)}
+                    </div>
+                `}
             </div>
         `;
     }
@@ -376,6 +801,27 @@ window.ProfileScreen = (() => {
             btn.addEventListener('click', () => {
                 currentTab = btn.dataset.tab;
                 if (typeof AudioManager !== 'undefined') AudioManager.uiClick?.();
+                render();
+            });
+        });
+
+        container.querySelector('#history-season-select')?.addEventListener('change', (e) => {
+            historySeason = parseInt(e.target.value, 10);
+            historyFocus = { type: 'driver', id: null };
+            render();
+        });
+
+        container.querySelectorAll('[data-history-view]').forEach(btn => {
+            btn.addEventListener('click', () => {
+                historyView = btn.dataset.historyView || 'standings';
+                render();
+            });
+        });
+
+        container.querySelectorAll('[data-history-select]').forEach(row => {
+            row.addEventListener('click', () => {
+                const [type, id] = String(row.dataset.historySelect || '').split(':');
+                historyFocus = { type, id };
                 render();
             });
         });
@@ -609,6 +1055,9 @@ window.ProfileScreen = (() => {
         EventBus.on('screen:profile:enter', () => {
             isActive = true;
             currentTab = 'overview';
+            historySeason = null;
+            historyView = 'standings';
+            historyFocus = { type: 'driver', id: null };
             render();
         });
 

@@ -248,10 +248,14 @@ window.ResultsScreen = (() => {
                     : -1;
                 
                 if (career.currentRound < lastHistoryRound) {
+                    const roundsAdvanced = lastHistoryRound - career.currentRound;
                     if (typeof CalendarService !== 'undefined') {
                         CalendarService.advanceRound(career, lastHistoryRound);
                     } else {
                         career.currentRound = lastHistoryRound;
+                    }
+                    if (typeof FacilityService !== 'undefined' && typeof FacilityService.processRoundProgression === 'function') {
+                        FacilityService.processRoundProgression(career, roundsAdvanced);
                     }
                     StateManager.set('career', career);
                     StateManager.saveGame?.();

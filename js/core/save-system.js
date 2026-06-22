@@ -40,23 +40,69 @@ window.SaveSystem = (() => {
         } catch(e) {}
     }
 
+    function compactRaceResultRow(row) {
+        if (!row || typeof row !== 'object') return row;
+        return {
+            position: row.position,
+            points: row.points || 0,
+            fastestLap: !!row.fastestLap,
+            fastestLapBonus: row.fastestLapBonus || 0,
+            status: row.status || null,
+            driver: row.driver ? { id: row.driver.id, name: row.driver.name } : null,
+            team: row.team ? { id: row.team.id, name: row.team.name, shortName: row.team.shortName || null } : null,
+            car: row.car ? {
+                gridPosition: row.car.gridPosition,
+                pitStopCount: row.car.pitStopCount,
+                id: row.car.id || null
+            } : null
+        };
+    }
+
+    function compactRaceHistoryForPersistence(career) {
+        if (!career || !Array.isArray(career.raceHistory)) return career;
+        career.raceHistory = career.raceHistory.map(entry => {
+            if (!entry || !Array.isArray(entry.fullResults)) return entry;
+            return {
+                ...entry,
+                fullResults: entry.fullResults.map(compactRaceResultRow)
+            };
+        });
+        return career;
+    }
+
+    function compactGameStateForPersistence(data) {
+        if (!data || typeof data !== 'object') return data;
+        if (data.career) compactRaceHistoryForPersistence(data.career);
+        if (data.race && Array.isArray(data.race.results)) {
+            data.race.results = data.race.results.map(compactRaceResultRow);
+        }
+        return data;
+    }
+
     /**
      * Save data to LocalStorage under a key
      * @param {string} key - Save slot name
      * @param {*} data - Any serializable data
      * @returns {boolean} Success
      */
-    function save(key, data) {
+    function save(key, data, options = {}) {
         try {
             if (typeof StorageCleanupService !== 'undefined') StorageCleanupService.autoCleanupIfNeeded();
             const storageKey = SAVE_PREFIX + key;
             const existing = localStorage.getItem(storageKey);
-            if (existing) {
+            const isAutosaveKey = /(^|_)autosave$/i.test(key);
+            const createBackup = options.createBackup !== undefined ? options.createBackup : !isAutosaveKey;
+
+            if (existing && createBackup) {
                 localStorage.setItem(storageKey + '_backup', existing);
             }
 
             // Persist exactly what can be reloaded: remove object identity/shared refs.
-            const serializableData = JSON.parse(JSON.stringify(data));
+            let serializableData = JSON.parse(JSON.stringify(data));
+            serializableData = compactGameStateForPersistence(serializableData);
+            if (options.optimizeAutosave && typeof StorageCleanupService !== 'undefined' && typeof StorageCleanupService.optimizeAutosaveData === 'function') {
+                serializableData = StorageCleanupService.optimizeAutosaveData(serializableData, options.optimizeAutosaveOptions || {}).data;
+            }
             const wrapper = {
                 version: SAVE_VERSION,
                 timestamp: Date.now(),
@@ -66,7 +112,8 @@ window.SaveSystem = (() => {
             };
             const serializedWrapper = JSON.stringify(wrapper);
             localStorage.setItem(storageKey, serializedWrapper);
-            if (!existing) localStorage.setItem(storageKey + '_backup', serializedWrapper);
+            if (createBackup && !existing) localStorage.setItem(storageKey + '_backup', serializedWrapper);
+            if (!createBackup) localStorage.removeItem(storageKey + '_backup');
             return true;
         } catch (err) {
             console.error('[SaveSystem] Save failed:', err);
@@ -75,9 +122,14 @@ window.SaveSystem = (() => {
                 try {
                     if (typeof StorageCleanupService !== 'undefined') {
                         StorageCleanupService.cleanup({ aggressive: true, reason: 'quota-exceeded' });
-                        const serializableData = JSON.parse(JSON.stringify(data));
+                        let serializableData = JSON.parse(JSON.stringify(data));
+                        serializableData = compactGameStateForPersistence(serializableData);
+                        if (options.optimizeAutosave && typeof StorageCleanupService.optimizeAutosaveData === 'function') {
+                            serializableData = StorageCleanupService.optimizeAutosaveData(serializableData, options.optimizeAutosaveOptions || {}).data;
+                        }
                         const wrapper = { version: SAVE_VERSION, timestamp: Date.now(), key, checksum: checksum(serializableData), data: serializableData };
                         localStorage.setItem(SAVE_PREFIX + key, JSON.stringify(wrapper));
+                        if (options.createBackup === false || /(^|_)autosave$/i.test(key)) localStorage.removeItem(SAVE_PREFIX + key + '_backup');
                         return true;
                     }
                 } catch(retryErr) { console.error('[SaveSystem] Save retry after cleanup failed:', retryErr); }
@@ -247,6 +299,9 @@ window.SaveSystem = (() => {
         }
         if (typeof ContractService !== 'undefined') {
             ContractService.ensureCareerContracts(repaired);
+            if (typeof ContractService.repairActiveDriverRosters === 'function') {
+                ContractService.repairActiveDriverRosters(repaired, []);
+            }
         }
 
         return repaired;
@@ -341,7 +396,16 @@ window.SaveSystem = (() => {
      * Quick auto-save with slot rotation
      */
     function autoSave(gameState, slot = 'autosave') {
-        return save(slot, gameState);
+        return save(slot, gameState, {
+            createBackup: false,
+            optimizeAutosave: true,
+            optimizeAutosaveOptions: {
+                detailedHistoryLimit: 8,
+                summaryHistoryLimit: 24,
+                eventLimit: 40,
+                recentEventLimit: 12
+            }
+        });
     }
 
     /**

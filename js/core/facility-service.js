@@ -191,23 +191,7 @@ window.FacilityService = (() => {
         return { ok: true, facility: key, cost, upgrade: facility.upgrade, approvalChance };
     }
 
-    function processConstruction(career, weeks = 10) {
-        ensureCareerFacilities(career);
-        const completed = [];
-        facilityKeys().forEach(key => {
-            const facility = career.headquarters.facilities[key];
-            if (!facility?.upgrade) return;
-            facility.upgrade.weeksRemaining -= weeks;
-            if (facility.upgrade.weeksRemaining <= 0) {
-                facility.level = clamp(facility.upgrade.toLevel);
-                completed.push({ key, level: facility.level, name: FACILITIES[key].name });
-                career.headquarters.completedProjects.push({ key, level: facility.level, season: career.season || 1 });
-                facility.upgrade = null;
-            }
-        });
-        const benefits = calculateBenefits(career);
-        career.headquarters.maintenanceDue = benefits.maintenanceCost;
-        career.budget = Math.max(0, (career.budget || 0) - benefits.maintenanceCost);
+    function finalizeCareerFacilitySync(career) {
         const team = career.allTeams?.find(t => t.id === career.team?.id);
         if (team) {
             team.headquarters = career.headquarters;
@@ -215,7 +199,40 @@ window.FacilityService = (() => {
             syncAcademyFromHQ(team);
             career.academy = team.academy;
         }
-        return { completed, maintenanceCost: benefits.maintenanceCost };
+        return career;
+    }
+
+    function advanceConstruction(career, weeks = 1) {
+        ensureCareerFacilities(career);
+        const completed = [];
+        facilityKeys().forEach(key => {
+            const facility = career.headquarters.facilities[key];
+            if (!facility?.upgrade) return;
+            facility.upgrade.weeksRemaining = Math.max(0, facility.upgrade.weeksRemaining - weeks);
+            if (facility.upgrade.weeksRemaining <= 0) {
+                facility.level = clamp(facility.upgrade.toLevel);
+                completed.push({ key, level: facility.level, name: FACILITIES[key].name });
+                career.headquarters.completedProjects.push({ key, level: facility.level, season: career.season || 1 });
+                facility.upgrade = null;
+            }
+        });
+        finalizeCareerFacilitySync(career);
+        return { completed };
+    }
+
+    function applySeasonMaintenance(career) {
+        ensureCareerFacilities(career);
+        const benefits = calculateBenefits(career);
+        career.headquarters.maintenanceDue = benefits.maintenanceCost;
+        career.budget = Math.max(0, (career.budget || 0) - benefits.maintenanceCost);
+        finalizeCareerFacilitySync(career);
+        return { maintenanceCost: benefits.maintenanceCost };
+    }
+
+    function processConstruction(career, weeks = 10) {
+        const construction = advanceConstruction(career, weeks);
+        const maintenance = applySeasonMaintenance(career);
+        return { completed: construction.completed, maintenanceCost: maintenance.maintenanceCost };
     }
 
     function applyFacilityEffectsToTeam(team) {
@@ -231,7 +248,7 @@ window.FacilityService = (() => {
         return team;
     }
 
-    function processAI(career) {
+    function startAIProjects(career) {
         ensureCareerFacilities(career);
         const log = [];
         (career.allTeams || []).filter(t => !t.isLocalPlayer).forEach(team => {
@@ -244,23 +261,18 @@ window.FacilityService = (() => {
                 const facility = team.headquarters.facilities[key];
                 const cost = upgradeCost(key, facility.level);
                 if (budget > cost) {
-                    facility.upgrade = { fromLevel: facility.level, toLevel: facility.level + 1, weeksRemaining: upgradeWeeks(key, facility.level), totalWeeks: upgradeWeeks(key, facility.level), cost, startedSeason: career.season || 1 };
+                    facility.upgrade = {
+                        fromLevel: facility.level,
+                        toLevel: facility.level + 1,
+                        weeksRemaining: upgradeWeeks(key, facility.level),
+                        totalWeeks: upgradeWeeks(key, facility.level),
+                        cost,
+                        startedSeason: career.season || 1
+                    };
                     team.aiBudget = budget - cost;
                     log.push(`${team.name} started ${FACILITIES[key].name} L${facility.level + 1}`);
                 }
             }
-            // AI construction progress
-            facilityKeys().forEach(k => {
-                const f = team.headquarters.facilities[k];
-                if (f.upgrade) {
-                    f.upgrade.weeksRemaining -= 10;
-                    if (f.upgrade.weeksRemaining <= 0) {
-                        f.level = clamp(f.upgrade.toLevel);
-                        f.upgrade = null;
-                        log.push(`${team.name} completed ${FACILITIES[k].name} L${f.level}`);
-                    }
-                }
-            });
             applyFacilityEffectsToTeam(team);
             syncAcademyFromHQ(team);
         });
@@ -268,11 +280,44 @@ window.FacilityService = (() => {
         return { career, log };
     }
 
+    function advanceAIConstruction(career, weeks = 1) {
+        ensureCareerFacilities(career);
+        const log = [];
+        (career.allTeams || []).filter(t => !t.isLocalPlayer).forEach(team => {
+            ensureTeamHQ(team);
+            facilityKeys().forEach(key => {
+                const facility = team.headquarters.facilities[key];
+                if (!facility?.upgrade) return;
+                facility.upgrade.weeksRemaining = Math.max(0, facility.upgrade.weeksRemaining - weeks);
+                if (facility.upgrade.weeksRemaining <= 0) {
+                    facility.level = clamp(facility.upgrade.toLevel);
+                    facility.upgrade = null;
+                    log.push(`${team.name} completed ${FACILITIES[key].name} L${facility.level}`);
+                }
+            });
+            applyFacilityEffectsToTeam(team);
+            syncAcademyFromHQ(team);
+        });
+        return { career, log };
+    }
+
+    function processRoundProgression(career, rounds = 1) {
+        const weeks = Math.max(0, parseInt(rounds, 10) || 0);
+        const construction = advanceConstruction(career, weeks);
+        const ai = advanceAIConstruction(career, weeks);
+        career.facilityRoundLog = [...(construction.completed || []).map(c => `Completed ${c.name} L${c.level}`), ...(ai.log || [])];
+        return { career, construction, ai, weeksAdvanced: weeks };
+    }
+
+    function processAI(career) {
+        return startAIProjects(career);
+    }
+
     function processSeasonEnd(career) {
-        const construction = processConstruction(career, 10);
-        const ai = processAI(career);
-        career.facilitySeasonLog = [...(construction.completed || []).map(c => `Completed ${c.name} L${c.level}`), ...(ai.log || [])];
-        return { career, construction, ai };
+        const maintenance = applySeasonMaintenance(career);
+        const ai = startAIProjects(career);
+        career.facilitySeasonLog = [...(ai.log || [])];
+        return { career, construction: { completed: [], maintenanceCost: maintenance.maintenanceCost }, ai };
     }
 
     return {
@@ -280,7 +325,10 @@ window.FacilityService = (() => {
         ensureTeamHQ,
         ensureCareerFacilities,
         requestUpgrade,
+        advanceConstruction,
+        applySeasonMaintenance,
         processConstruction,
+        processRoundProgression,
         processAI,
         processSeasonEnd,
         calculateBenefits,
