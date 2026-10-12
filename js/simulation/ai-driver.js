@@ -267,8 +267,11 @@ window.AIDriver = (() => {
     function adjustLapTime(car, baseLapTime) {
         if (!car.ai) return baseLapTime;
 
-        const profile = car.ai.profile;
-        const adjustment = (1 - profile.paceMod) * 0.8;
+        // Explicit symmetric per-difficulty offsets (seconds/lap).
+        // The old formula (1 - paceMod) * 0.8 made ELITE only 0.04s faster than
+        // COMPETITIVE (≈2s over a whole race) while CASUAL was 1.56s slower.
+        const LAP_TIME_OFFSETS = { CASUAL: +0.8, COMPETITIVE: 0, ELITE: -0.45 };
+        const adjustment = LAP_TIME_OFFSETS[car.ai.difficulty] ?? 0;
         return baseLapTime + adjustment;
     }
 

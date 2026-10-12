@@ -539,8 +539,8 @@ window.AudioManager = (() => {
         EventBus.on('race:position_lost', positionLost);
         EventBus.on('race:victory', victoryFanfare);
 
-        EventBus.on('nav:go', diveTransition);
-        EventBus.on('nav:home', () => whoosh(0.6));
+        // Navigation sounds (whoosh, gantry ticks, revs) are choreographed
+        // by js/ui/transition-director.js — no global nav listeners here.
 
         EventBus.on('achievement:unlocked', achievementUnlock);
     }

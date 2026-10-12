@@ -25,21 +25,32 @@ const SillySeason = (() => {
         let aiTeams = allTeams.filter(t => !t.isLocalPlayer);
         let playerTeam = allTeams.find(t => t.isLocalPlayer);
 
-        // 2. Perform AI Team Shuffling
+        // 2. Handle Retirements & New Rookies FIRST, so this season's rookies
+        // are already in the pool when AI teams shop for replacements.
+        // (Previously ran AFTER the shuffle, so created rookies could never
+        // actually be signed and the feature was invisible.)
+        handleRetirementsAndRookies(driverData);
+
+        // 3. Perform AI Team Shuffling
         aiTeams.forEach(team => {
             // Chance to change drivers based on team performance vs expectations
-            // We'll use a simplified logic: 25% chance per seat to change
+            // We'll use a simplified logic: 25% chance per seat to change.
+            // Track newly-signed ids DURING the map — otherwise both seats of the
+            // same team can sign the same free agent in one pass (signedDriverIds
+            // is only recomputed per team, after the map commits).
+            const newlySignedThisTeam = [];
             team.drivers = team.drivers.map(driver => {
                 const changeChance = 0.25;
                 if (Math.random() < changeChance) {
-                    return findNewDriverForTeam(team, allTeams, driverData);
+                    const replacement = findNewDriverForTeam(team, allTeams, driverData, newlySignedThisTeam);
+                    if (replacement) {
+                        newlySignedThisTeam.push(replacement.id);
+                        return replacement;
+                    }
                 }
                 return driver;
             });
         });
-
-        // 3. Handle Retirements & New Rookies
-        handleRetirementsAndRookies(driverData);
 
         console.log('[SillySeason] Silly Season completed.');
         return allTeams;
@@ -47,15 +58,18 @@ const SillySeason = (() => {
 
     /**
      * Find a suitable new driver for an AI team
+     * @param {string[]} excludeIds - extra ids to treat as unavailable (e.g. drivers
+     *                                signed earlier in the same team's seat shuffle)
      */
-    function findNewDriverForTeam(team, allTeams, driverData) {
+    function findNewDriverForTeam(team, allTeams, driverData, excludeIds = []) {
         const teamRep = team.reputation || 75;
-        
+
         // Find drivers currently not signed to any team
-        const signedDriverIds = [];
+        const signedDriverIds = [...excludeIds];
         allTeams.forEach(t => t.drivers.forEach(d => signedDriverIds.push(d.id)));
 
-        const available = driverData.filter(d => !signedDriverIds.includes(d.id));
+        const available = driverData.filter(d => d && d.id && !signedDriverIds.includes(d.id));
+        if (available.length === 0) return null;
         
         // Filter by "Prestige" - top teams want top drivers
         let suitable = available.filter(d => {
@@ -91,10 +105,40 @@ const SillySeason = (() => {
     }
 
     /**
-     * Create a new young driver (Rookie)
+     * Create a new young driver (Rookie) to replace a retiree.
+     * Returns a full driver object matching the DRIVERS_DATA shape.
      */
+    const ROOKIE_FIRST_NAMES = ['Kai', 'Enzo', 'Theo', 'Rafael', 'Yuki', 'Mateo', 'Felix', 'Oscar', 'Liam', 'Noah', 'Arvid', 'Gabriel', 'Julian', 'Leon', 'Marco', 'Nikolai'];
+    const ROOKIE_LAST_NAMES = ['Vettelbach', 'Costa', 'Lindqvist', 'Moretti', 'Nakamura', 'Alvarez', 'Bergström', 'Kowalski', 'Silva', 'Duval', 'Haugen', 'Ferrante', 'Novak', 'Reyes', 'Larsen', 'Petrov'];
+    const ROOKIE_FLAGS = ['🏁', '🌍', '🏎️'];
+
     function createRookie(nationality) {
-        // ... (existing rookie creation)
+        const firstName = ROOKIE_FIRST_NAMES[Math.floor(Math.random() * ROOKIE_FIRST_NAMES.length)];
+        const lastName = ROOKIE_LAST_NAMES[Math.floor(Math.random() * ROOKIE_LAST_NAMES.length)];
+        // Rookies: high potential (rating skewed high), low experience, low cost
+        const rating = 72 + Math.floor(Math.random() * 18); // 72–89
+        const clampStat = v => Math.max(40, Math.min(99, Math.round(v)));
+        return {
+            id: 'rookie_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7),
+            name: `${firstName.charAt(0)}. ${lastName}`,
+            firstName: firstName,
+            lastName: lastName,
+            nationality: nationality || 'International',
+            flag: ROOKIE_FLAGS[Math.floor(Math.random() * ROOKIE_FLAGS.length)],
+            age: 18 + Math.floor(Math.random() * 5), // 18–22
+            rating: rating,
+            cost: 500000 + rating * 40000, // cheap rookie contract
+            stats: {
+                pace: clampStat(rating + (Math.random() * 8 - 2)),
+                consistency: clampStat(rating - 8 + Math.random() * 10),
+                tireManagement: clampStat(rating - 6 + Math.random() * 10),
+                wetSkill: clampStat(rating - 4 + Math.random() * 12),
+                racecraft: clampStat(rating - 7 + Math.random() * 10),
+                experience: clampStat(35 + Math.random() * 20) // rookies lack experience
+            },
+            traits: Math.random() < 0.35 ? ['AGGRESSIVE'] : (Math.random() < 0.25 ? ['SMOOTH'] : []),
+            bio: 'Explosive rookie fresh from the junior formulae. Raw pace, still learning race craft.'
+        };
     }
 
     /**

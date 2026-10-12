@@ -337,7 +337,7 @@ window.StateManager = (() => {
             });
         }
         if (typeof TRACKS_DATA === 'undefined' || !Array.isArray(TRACKS_DATA) || TRACKS_DATA.length === 0) {
-            const fallback = ['monaco','silverstone','spa','monza','suzuka','interlagos','bahrain','shanghai','albert_park','hungaroring'];
+            const fallback = ['baku', 'nurburgring', 'zandvoort', 'shanghai', 'jeddah', 'lusail', 'cota', 'mexico_city', 'hungaroring', 'albert_park'];
             return fallback.slice(0, numRaces || 10);
         }
         const shuffled = [...TRACKS_DATA].sort(() => Math.random() - 0.5);

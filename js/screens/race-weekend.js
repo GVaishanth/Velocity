@@ -456,7 +456,7 @@ window.RaceWeekendScreen = (() => {
                             ${escapeHTML(driver.name)} lost control and crashed into the barriers!
                         </h3>
                         <p style="font-family: Rajdhani; font-size: 15px; color: var(--gray-300); line-height: 1.6; margin-bottom: 16px;">
-                            Sarcastic Engineer: "Wow, magnificent line through that corner. E.g., really tested the structural integrity of our carbon chassis. Don't worry, the driver is perfectly fine... but we had to completely rebuild the suspension and front wing."
+                            Sarcastic Engineer: "Wow, magnificent line through that corner. Really tested the structural integrity of our carbon chassis. Don't worry, the driver is perfectly fine... but we had to completely rebuild the suspension and front wing."
                         </p>
                         <div style="padding: 12px; background: rgba(255,215,0,0.1); border: 1px solid var(--yellow); border-radius: 8px; color: var(--yellow); font-family: Orbitron; font-size: 14px; font-weight: 900;">
                             🛠️ INSTANT REPAIR BILL: $${formatMoney(repairCost)} PAID. CAR fully REBUILT FOR RACING!
@@ -506,12 +506,12 @@ window.RaceWeekendScreen = (() => {
             <div class="rw-container" style="max-width: 1500px; margin: 0 auto; padding: 24px;">
                 
                 <!-- TOP STAGING BANNER -->
-                <div style="display: flex; justify-content: space-between; align-items: center; background: radial-gradient(circle at center, #112211, #050505); border: 2px solid var(--green); border-radius: var(--radius-lg); padding: 20px 32px; box-shadow: 0 0 30px rgba(0,255,65,0.2); margin-bottom: 24px;">
+                <div class="rw-quali-banner" style="display: flex; justify-content: space-between; align-items: center; background: radial-gradient(circle at center, #112211, #050505); border: 2px solid var(--green); border-radius: var(--radius-lg); padding: 20px 32px; box-shadow: 0 0 30px rgba(0,255,65,0.2); margin-bottom: 24px;">
                     <div>
                         <div style="font-family: Orbitron; font-size: 13px; font-weight: 900; color: var(--green); letter-spacing: 4px;">🏎️ ESCALATION PROTOCOL ACTIVE</div>
-                        <div style="font-family: Orbitron; font-size: 32px; font-weight: 900; color: white; margin-top: 4px; text-transform: uppercase;">KNOCKOUT QUALIFYING • ${qualiState.session}</div>
+                        <div class="rw-quali-banner-title" style="font-family: Orbitron; font-size: 32px; font-weight: 900; color: white; margin-top: 4px; text-transform: uppercase;">KNOCKOUT QUALIFYING • ${qualiState.session}</div>
                     </div>
-                    <div style="display: flex; gap: 20px; text-align: center; align-items: center;">
+                    <div class="rw-quali-banner-info" style="display: flex; gap: 20px; text-align: center; align-items: center;">
                         <div style="background: rgba(0,0,0,0.6); border: 1px solid var(--border-medium); padding: 10px 20px; border-radius: var(--radius-md);">
                             <span style="font-family: Rajdhani; font-size: 11px; color: var(--gray-400); text-transform: uppercase; letter-spacing: 2px;">Target Q1 / Q2 Cutoff</span>
                             <div style="font-family: Orbitron; font-size: 18px; font-weight: 900; color: var(--yellow); margin-top: 2px;">${qualiState.session === 'Q1' ? '1:34.250' : qualiState.session === 'Q2' ? '1:32.800' : 'POLE SHOOTOUT'}</div>
@@ -524,7 +524,7 @@ window.RaceWeekendScreen = (() => {
                 </div>
 
                 <!-- MAIN QUALIFYING brACKETS (3 DEDICATED COLUMNS SIDE-BY-SIDE!) -->
-                <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; width: 100%;">
+                <div class="rw-quali-grid" style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; width: 100%;">
                     <!-- COL 1: Q1 -->
                     <div class="quali-bracket-panel" style="background: var(--surface-1); border: 1px solid ${qualiState.session === 'Q1' ? 'var(--green)' : 'var(--border-subtle)'}; border-radius: var(--radius-lg); padding: 16px; display: flex; flex-direction: column; opacity: ${qualiState.session === 'Q1' ? '1.0' : '0.7'}; box-shadow: ${qualiState.session === 'Q1' ? '0 0 25px rgba(0,255,65,0.15)' : 'none'};">
                         <div class="panel-title" style="color: var(--green); justify-content: space-between; font-size: 14px;">
@@ -560,7 +560,7 @@ window.RaceWeekendScreen = (() => {
                 </div>
 
                 <!-- BOTTOM CONTROLS & TIRE WARMERS -->
-                <div style="display: flex; justify-content: space-between; align-items: center; background: var(--surface-glass); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); padding: 20px 32px; margin-top: 24px; box-shadow: 0 0 20px rgba(0,0,0,0.8);">
+                <div class="rw-quali-controls" style="display: flex; justify-content: space-between; align-items: center; background: var(--surface-glass); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); padding: 20px 32px; margin-top: 24px; box-shadow: 0 0 20px rgba(0,0,0,0.8);">
                     <div>
                         <div style="font-family: Orbitron; font-weight: 900; font-size: 15px; color: white;">⚠️ 1% CATASTROPHIC INCIDENT RISK ACTIVE PER TURN</div>
                         <div style="font-family: Rajdhani; font-size: 13px; color: var(--gray-400); margin-top: 2px;">Crashes instantly trigger engineer repair invoices to rebuild the chassis for the Grand Prix.</div>

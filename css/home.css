@@ -141,11 +141,11 @@
     border-radius: 50%;
     position: relative;
     background: #111113; /* Authentic slick black rubber carcass */
-    border: 14px solid #FFD700; /* Authentic Pirelli P-Zero Medium Yellow Formula 1 Compound Stripe */
-    box-shadow: 
+    border: 14px solid #050506; /* black rubber sidewall — tires are rubber-black, not gold */
+    box-shadow:
         0 0 60px rgba(0, 0, 0, 0.95),
         inset 0 0 45px rgba(0, 0, 0, 0.85),
-        0 0 30px rgba(255, 215, 0, 0.35);
+        0 0 24px rgba(255, 255, 255, 0.05);
     animation: tire-spin 40s linear infinite;
     cursor: pointer;
     transform-style: preserve-3d;
@@ -175,7 +175,7 @@
         transparent 0deg 3deg,
         rgba(255, 255, 255, 0.03) 3deg 6deg
     );
-    border: 2px dashed rgba(255, 215, 0, 0.45);
+    border: 2px dashed rgba(255, 255, 255, 0.10);   /* faint tread-line ring, not gold */
     z-index: 5;
     pointer-events: none;
 }
@@ -361,8 +361,8 @@
     width: 76px;
     height: 76px;
     border-radius: 50%;
-    border: 2px solid rgba(255, 215, 0, 0.5);
-    box-shadow: 0 0 20px rgba(255, 215, 0, 0.25);
+    border: 2px solid rgba(255, 255, 255, 0.16);
+    box-shadow: 0 0 20px rgba(255, 255, 255, 0.08);
     pointer-events: none;
 }
 

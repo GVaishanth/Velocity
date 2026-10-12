@@ -1,0 +1,184 @@
+/* ============================================================
+   VELOCITY — MOBILE UI (phones ≤700px, small tablets ≤850px)
+   Desktop-first game; this layer makes every screen usable on
+   small touch screens. Loaded LAST. Rules are grouped per screen.
+   ============================================================ */
+
+html { -webkit-text-size-adjust: 100%; }
+
+/* Use dynamic viewport height so the URL bar doesn't crop content */
+@supports (height: 100dvh) {
+    @media (max-width: 850px) {
+        #game-container { height: 100dvh; }
+    }
+}
+
+/* ============================================================
+   RACE SCREEN — live HUD rebuilt for portrait phones.
+   Desktop: side-by-side timing | track. Mobile: stack timing over
+   a row of track + tactical deck; top bar wraps; bottom bar
+   scrolls horizontally so no control is clipped.
+   ============================================================ */
+@media (max-width: 760px) {
+    #race-top-bar {
+        height: auto;
+        min-height: 46px;
+        flex-wrap: wrap;
+        row-gap: 2px;
+        column-gap: 10px;
+        padding: 4px 10px;
+    }
+    #race-top-bar .race-name { font-size: 11px; letter-spacing: 1px; }
+    #race-top-bar .race-round { font-size: 10px; letter-spacing: 1px; }
+    #race-top-bar .race-info-left,
+    #race-top-bar .race-info-center,
+    #race-top-bar .race-info-right { gap: 8px; }
+
+    #race-main {
+        flex-direction: column;
+        height: auto;
+        flex: 1;
+        min-height: 0;
+    }
+    #race-timing-panel {
+        width: 100%;
+        flex: 1 1 54%;
+        min-height: 0;
+        border-right: none;
+        border-bottom: 1px solid var(--border-subtle);
+    }
+    #race-right-panel {
+        width: 100%;
+        flex: 1 1 46%;
+        min-height: 0;
+        flex-direction: row;
+    }
+    #race-track-panel {
+        flex: 0 0 46%;
+        max-height: none;
+        border-bottom: none;
+        border-right: 2px solid var(--border-medium);
+    }
+    /* keep zoom cluster tiny so touch-drag stays usable on the small map */
+    #race-track-panel .camera-controls {
+        bottom: 6px;
+        right: 6px;
+        gap: 4px;
+    }
+    #race-track-panel .camera-btn {
+        width: 30px;
+        height: 30px;
+        font-size: 12px;
+    }
+    #race-tactical-deck {
+        flex: 1 1 54%;
+        max-height: none;
+    }
+
+    #race-bottom-bar {
+        height: auto;
+        min-height: 58px;
+        overflow-x: auto;          /* swipe — nothing gets clipped */
+        overflow-y: hidden;
+        justify-content: flex-start;
+        scrollbar-width: thin;
+    }
+    #race-bottom-bar > * { flex-shrink: 0; }
+    .boost-telemetry-panel {
+        min-width: 150px;
+        max-width: none;
+        height: auto;
+        min-height: 52px;
+    }
+
+    /* timing table tightens up */
+    #race-timing-panel table { font-size: 11px; }
+    #race-timing-panel th { padding: 4px 6px; font-size: 9px; }
+    #race-timing-panel td { padding: 5px 6px; }
+}
+
+/* ============================================================
+   RACE WEEKEND — qualifying brackets & strategy hub on phones
+   (!important needed: those layouts are set via inline styles)
+   ============================================================ */
+@media (max-width: 980px) {
+    .rw-quali-grid { grid-template-columns: 1fr !important; }
+}
+@media (max-width: 640px) {
+    #screen-race-weekend .rw-container { padding: 12px !important; }
+    .rw-quali-banner { flex-wrap: wrap !important; gap: 14px; padding: 14px 16px !important; }
+    .rw-quali-banner-title { font-size: 19px !important; }
+    .rw-quali-banner-info { width: 100%; justify-content: space-between !important; gap: 8px !important; }
+    .rw-quali-banner-info > div { flex: 1; padding: 8px 6px !important; }
+    .rw-quali-controls { flex-direction: column !important; align-items: stretch !important; gap: 14px; padding: 16px !important; }
+    .rw-quali-controls > div:last-child { display: flex !important; flex-direction: column !important; gap: 10px !important; }
+    .rw-quali-controls .btn { width: 100%; }
+    /* strategy hub — inline "span 2" would force a phantom 2nd column */
+    .rw-strategy-card { grid-column: auto !important; padding: 16px !important; }
+    .tire-options-grid { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)) !important; }
+}
+
+/* ============================================================
+   MULTIPLAYER LOBBY — title row stacks, back button gets room
+   ============================================================ */
+@media (max-width: 640px) {
+    .lobby-header { flex-direction: column; align-items: flex-start; gap: 14px; }
+    .lobby-title { font-size: clamp(20px, 7.5vw, 32px) !important; }
+}
+
+/* Command Center / waiting room: inline 3-col grid squishes to char-slivers.
+   !important needed because the columns are set via inline style. */
+@media (max-width: 900px) {
+    .room-waiting { display: block !important; height: auto !important; }
+}
+
+/* ============================================================
+   RESULTS — classification table loses its lowest-value column
+   rather than squishing driver/team names on phones
+   ============================================================ */
+@media (max-width: 560px) {
+    .results-table th, .results-table td { padding: 6px 5px; font-size: 12px; }
+    .results-table th:nth-child(5),
+    .results-table td:nth-child(5) { display: none; }   /* BEST LAP */
+}
+
+/* ============================================================
+   HEADQUARTERS
+   ============================================================ */
+@media (max-width: 700px) {
+    .hq-header { margin-top: 60px; }   /* kicker clears the home pill */
+}
+
+/* ============================================================
+   HOME
+   ============================================================ */
+@media (max-width: 640px) {
+    .title-main {
+        font-size: clamp(34px, 10.5vw, 56px);
+        letter-spacing: 3px;
+    }
+    .title-sub {
+        font-size: 11px;
+        letter-spacing: 3px;
+    }
+    #tire-wheel-container {
+        width: min(88vw, 64vh);
+        height: min(88vw, 64vh);
+    }
+    .tire-label {
+        font-size: clamp(9px, 2.6vw, 13px) !important;
+        letter-spacing: 1px !important;
+    }
+    #home-footer {
+        padding: 0 16px;
+        bottom: 16px;
+        gap: 10px;
+    }
+    .tagline {
+        font-size: 11px;
+        letter-spacing: 3px;
+        text-align: center;
+    }
+    .version { font-size: 10px; }
+    .icon-btn { width: 44px; height: 44px; }   /* touch target */
+}

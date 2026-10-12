@@ -477,10 +477,20 @@ window.PlayerControls = (() => {
                 confirmText: 'Start Vote',
                 onConfirm: () => {
                     if (typeof OnlineManager !== 'undefined') {
-                        OnlineManager.broadcastAction('SKIP_VOTE_START', { requester: OnlineManager.getMyUsername() });
-                        // Requester implicitly votes yes
+                        const me = OnlineManager.getMyUsername();
+                        OnlineManager.broadcastAction('SKIP_VOTE_START', { requester: me });
+                        // Open a fresh local session seeded with my implicit YES...
+                        if (typeof OnlineManager.startSkipVoteSession === 'function') {
+                            OnlineManager.startSkipVoteSession(me);
+                        }
+                        // ...and make sure the Host counts my YES too (it only
+                        // saw local votes before, so a challenger's vote could
+                        // never reach the Host's threshold and the requester
+                        // froze waiting for a skip that never came).
+                        OnlineManager.broadcastAction('SKIP_VOTE_CONFIRM', { voter: me });
+                        // Local feedback ("1/N agreed" toast); Set dedupes the double-add
                         if (typeof OnlineManager.handleSkipVoteConfirm === 'function') {
-                            OnlineManager.handleSkipVoteConfirm(OnlineManager.getMyUsername());
+                            OnlineManager.handleSkipVoteConfirm(me);
                         }
                     }
                 }

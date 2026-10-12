@@ -25,6 +25,13 @@ window.TrackRenderer = (() => {
     let canvasWidth = 0;
     let canvasHeight = 0;
 
+    // Fit-view baseline (captured by resize) + interaction state
+    let baseScale = 1;
+    const ZOOM_MIN_MUL = 0.55;   // how far out below fit
+    const ZOOM_MAX_MUL = 9;      // how deep in
+    let userView = false;        // user has panned/zoomed away from fit
+    let interactHandlers = null; // cleanup refs for destroy()
+
     // Track bounding box and center
     let centerX = 350;
     let centerY = 300;
@@ -52,11 +59,10 @@ window.TrackRenderer = (() => {
         if (!camBox && canvasElement.parentElement) {
             camBox = document.createElement('div');
             camBox.className = 'camera-controls';
-            camBox.style.cssText = 'position: absolute; bottom: 12px; right: 12px; display: flex; gap: 6px; z-index: 100; background: rgba(0,0,0,0.6); padding: 4px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.1);';
             camBox.innerHTML = `
-                <button class="btn btn-yellow" id="btn-cam-zoom-in" title="Zoom In Track" style="padding: 6px 12px; font-family: Orbitron; font-weight: 900; font-size: 11px; cursor: pointer;">🔍 +</button>
-                <button class="btn btn-yellow" id="btn-cam-zoom-out" title="Zoom Out Track" style="padding: 6px 12px; font-family: Orbitron; font-weight: 900; font-size: 11px; cursor: pointer;">🔍 -</button>
-                <button class="btn btn-yellow" id="btn-cam-reset" title="Reset Zoom" style="padding: 6px 12px; font-family: Orbitron; font-weight: 900; font-size: 11px; cursor: pointer;">🔄 RESET</button>
+                <button class="camera-btn" id="btn-cam-zoom-in" title="Zoom In Track">🔍 +</button>
+                <button class="camera-btn" id="btn-cam-zoom-out" title="Zoom Out Track">🔍 -</button>
+                <button class="camera-btn" id="btn-cam-reset" title="Reset Zoom">🔄</button>
             `;
             canvasElement.parentElement.appendChild(camBox);
 
@@ -64,34 +70,157 @@ window.TrackRenderer = (() => {
             camBox.querySelector('#btn-cam-zoom-out')?.addEventListener('click', () => { zoomOut(); });
             camBox.querySelector('#btn-cam-reset')?.addEventListener('click', () => { resetZoom(); });
         }
+
+        attachInteraction();
     }
 
     /**
-     * Camera Zoom API Execution Matrix
+     * Camera Camera/viewport movement — zoom is anchored at a viewport
+     * point so the content under the cursor stays put; drag pans.
      */
-    function zoomIn() {
-        if (!canvas) return;
-        scale *= 1.25;
-        offsetX = canvasWidth / 2 - centerX * scale;
-        offsetY = canvasHeight / 2 - centerY * scale;
+    function clampOffsets() {
+        // world bbox in canvas coords
+        const wl = (centerX - pathWidth / 2) * scale + offsetX;
+        const wt = (centerY - pathHeight / 2) * scale + offsetY;
+        const wr = wl + pathWidth * scale;
+        const wb = wt + pathHeight * scale;
+        const margin = Math.min(90, Math.min(canvasWidth, canvasHeight) * 0.18);
+        let dx = 0, dy = 0;
+        if (wl > canvasWidth - margin) dx = canvasWidth - margin - wl;
+        if (wr < margin) dx = margin - wr;
+        if (wt > canvasHeight - margin) dy = canvasHeight - margin - wt;
+        if (wb < margin) dy = margin - wb;
+        offsetX += dx; offsetY += dy;
+    }
+
+    function invalidate() {
         staticCached = false;
         renderStaticLayers();
+    }
+
+    function zoomAt(factor, px, py) {
+        if (!canvas) return;
+        const lo = baseScale * ZOOM_MIN_MUL;
+        const hi = baseScale * ZOOM_MAX_MUL;
+        let target = scale * factor;
+        if (target < lo) target = lo;
+        if (target > hi) target = hi;
+        if (target === scale) return;
+        const s = target / scale;
+        scale = target;
+        // keep the world point under (px, py) stationary
+        offsetX = px - (px - offsetX) * s;
+        offsetY = py - (py - offsetY) * s;
+        clampOffsets();
+        userView = true;
+        invalidate();
+    }
+
+    function zoomIn() {
+        zoomAt(1.3, canvasWidth / 2, canvasHeight / 2);
         if (typeof AudioManager !== 'undefined') AudioManager.uiClick();
     }
 
     function zoomOut() {
-        if (!canvas) return;
-        scale /= 1.25;
-        offsetX = canvasWidth / 2 - centerX * scale;
-        offsetY = canvasHeight / 2 - centerY * scale;
-        staticCached = false;
-        renderStaticLayers();
+        zoomAt(1 / 1.3, canvasWidth / 2, canvasHeight / 2);
         if (typeof AudioManager !== 'undefined') AudioManager.uiClick();
     }
 
     function resetZoom() {
         resize();
         if (typeof AudioManager !== 'undefined') AudioManager.uiClick();
+    }
+
+    function panBy(dx, dy) {
+        offsetX += dx; offsetY += dy;
+        clampOffsets();
+        userView = true;
+        invalidate();
+    }
+
+    /**
+     * Viewport interaction — drag to pan, mouse wheel to zoom at cursor,
+     * two-finger pinch to zoom + drag on touch screens.
+     */
+    function attachInteraction() {
+        if (!canvas || interactHandlers) return;
+
+        canvas.style.touchAction = 'none';
+        canvas.style.cursor = 'grab';
+
+        const pointers = new Map();   // pointerId -> {x, y}
+        let lastPinchDist = 0;
+        let lastCenter = null;
+
+        function canvasPoint(e) {
+            const r = canvas.getBoundingClientRect();
+            return { x: e.clientX - r.left, y: e.clientY - r.top };
+        }
+
+        const onWheel = (e) => {
+            e.preventDefault();
+            const pt = canvasPoint(e);
+            zoomAt(e.deltaY < 0 ? 1.16 : 1 / 1.16, pt.x, pt.y);
+        };
+
+        const onDown = (e) => {
+            if (e.button !== undefined && e.button > 0) return;
+            try { canvas.setPointerCapture(e.pointerId); } catch (err) { /* fine */ }
+            pointers.set(e.pointerId, canvasPoint(e));
+            if (pointers.size === 1) canvas.style.cursor = 'grabbing';
+            if (pointers.size === 2) {
+                const pts = [...pointers.values()];
+                lastPinchDist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+                lastCenter = { x: (pts[0].x + pts[1].x) / 2, y: (pts[0].y + pts[1].y) / 2 };
+            }
+        };
+
+        const onMove = (e) => {
+            if (!pointers.has(e.pointerId)) return;
+            const prev = pointers.get(e.pointerId);
+            const cur = canvasPoint(e);
+            pointers.set(e.pointerId, cur);
+
+            if (pointers.size === 1 && prev) {
+                panBy(cur.x - prev.x, cur.y - prev.y);
+            } else if (pointers.size === 2) {
+                const pts = [...pointers.values()];
+                const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+                const center = { x: (pts[0].x + pts[1].x) / 2, y: (pts[0].y + pts[1].y) / 2 };
+                if (lastCenter) panBy(center.x - lastCenter.x, center.y - lastCenter.y);
+                if (lastPinchDist > 0 && dist > 0) zoomAt(dist / lastPinchDist, center.x, center.y);
+                lastPinchDist = dist;
+                lastCenter = center;
+            }
+        };
+
+        const onUp = (e) => {
+            pointers.delete(e.pointerId);
+            lastPinchDist = 0;
+            lastCenter = null;
+            if (pointers.size === 0) canvas.style.cursor = 'grab';
+        };
+
+        canvas.addEventListener('wheel', onWheel, { passive: false });
+        canvas.addEventListener('pointerdown', onDown);
+        canvas.addEventListener('pointermove', onMove);
+        canvas.addEventListener('pointerup', onUp);
+        canvas.addEventListener('pointercancel', onUp);
+        canvas.addEventListener('pointerleave', onUp);
+
+        interactHandlers = { onWheel, onDown, onMove, onUp };
+    }
+
+    function detachInteraction() {
+        if (!canvas || !interactHandlers) return;
+        canvas.removeEventListener('wheel', interactHandlers.onWheel);
+        canvas.removeEventListener('pointerdown', interactHandlers.onDown);
+        canvas.removeEventListener('pointermove', interactHandlers.onMove);
+        canvas.removeEventListener('pointerup', interactHandlers.onUp);
+        canvas.removeEventListener('pointercancel', interactHandlers.onUp);
+        canvas.removeEventListener('pointerleave', interactHandlers.onUp);
+        canvas.style.cursor = '';
+        interactHandlers = null;
     }
 
     /**
@@ -187,6 +316,9 @@ window.TrackRenderer = (() => {
 
         offsetX = canvasWidth / 2 - centerX * scale;
         offsetY = canvasHeight / 2 - centerY * scale;
+
+        baseScale = scale;   // fit-view baseline for zoom clamps + reset
+        userView = false;
 
         // Setup static canvas
         staticCanvas.width = canvasWidth * dpr;
@@ -578,6 +710,7 @@ window.TrackRenderer = (() => {
 
     function destroy() {
         window.removeEventListener('resize', resize);
+        detachInteraction();
         canvas = null;
         ctx = null;
         staticCanvas = null;

@@ -1,0 +1,161 @@
+/* ============================================================
+   VELOCITY — RESPONSIVE OVERLAP FIXES
+   Cross-screen text-collision repairs found via automated
+   viewport audit (1920→390px). Loaded LAST so these rules win;
+   !important used deliberately to override component inline
+   styles at tight breakpoints.
+   ============================================================ */
+
+/* ---- 1. Global home pill — never wrap, shrink on phones ---- */
+.home-btn { white-space: nowrap !important; }
+
+@media (max-width: 640px) {
+    .home-btn {
+        top: 12px !important;
+        padding: 7px 16px !important;
+        font-size: 13px !important;
+    }
+    .home-btn::after {
+        content: ' HOME' !important;
+        font-size: 10px !important;
+        letter-spacing: 2px !important;
+    }
+}
+
+/* ---- 2. Toast notifications — on narrow screens, float them above
+       the bottom action bars instead of covering titles/taglines ---- */
+@media (max-width: 850px) {
+    #notification-area {
+        top: auto;
+        bottom: 88px;
+        left: 12px;
+        right: 12px;
+        align-items: center;
+    }
+    .notification {
+        min-width: 0;
+        max-width: calc(100vw - 24px);
+        box-sizing: border-box;
+    }
+}
+
+/* ---- 3. Pill clearance for headers (fixed class mismatches) ---- */
+.setup-header,
+.lobby-header { margin-top: 60px; }
+
+/* ---- 4. Singleplayer title — one line on phones, clears tagline ---- */
+@media (max-width: 480px) {
+    .screen-title {
+        font-size: 20px !important;
+        letter-spacing: 2px !important;
+        white-space: nowrap !important;
+        width: 94vw;
+        text-align: center;
+    }
+}
+
+/* ---- 5. Tutorial — content greets below the pill; sidebar stacks ≤850 ---- */
+.tutorial-main { padding-top: 76px; }
+
+@media (max-width: 850px) {
+    .tutorial-container { flex-direction: column; }
+    .tutorial-sidebar {
+        width: 100%;
+        min-width: 0;
+        max-height: 240px;
+        border-right: none;
+        border-bottom: 1px solid var(--border-subtle);
+        padding-top: 72px;              /* "CHAPTERS" clears the pill */
+    }
+    .tutorial-main { padding-top: var(--space-xl); }
+}
+
+/* ---- 6. Team setup — header wraps instead of colliding ---- */
+.setup-header { flex-wrap: wrap; row-gap: var(--space-md); }
+
+/* ---- 7. Profile license card ---- */
+/* the card is a flex child of a scrollable column with overflow:hidden
+   — never let it shrink below its natural height or it clips itself */
+.profile-vip-license { flex-shrink: 0 !important; }
+
+/* security stamp collides with badge/button below ~1500px */
+@media (max-width: 1199px) {
+    .license-security-stamp { display: none !important; }
+}
+@media (min-width: 1200px) and (max-width: 1500px) {
+    .license-security-stamp {
+        transform: scale(0.78);
+        transform-origin: top right;
+    }
+    /* protect only the badge/button row — keep the username full width */
+    .player-identity-matrix > div:first-of-type { margin-right: 410px !important; }
+}
+
+/* tablet: slow down the oversized inline type */
+@media (min-width: 701px) and (max-width: 950px) {
+    .profile-vip-license .player-username {
+        font-size: 30px !important;
+        letter-spacing: 4px !important;
+    }
+}
+
+/* phone: card keeps its padding sane + lets itself grow; nothing clips */
+@media (max-width: 700px) {
+    .profile-vip-license {
+        padding: 32px 20px !important;
+        min-height: 0 !important;
+        gap: 22px !important;
+    }
+    .profile-vip-license .player-username {
+        font-size: 22px !important;
+        letter-spacing: 2px !important;
+        white-space: normal !important;
+        overflow: visible !important;
+        text-overflow: clip !important;
+        word-break: break-word;
+    }
+    .profile-vip-license .license-avatar-dock {
+        width: 150px !important;
+        height: 150px !important;
+    }
+    .profile-vip-license .avatar-hexagon-frame { font-size: 64px !important; }
+    .profile-vip-license .identity-upper-tier {
+        gap: 24px !important;
+        justify-content: center !important;
+    }
+    /* kill the inline min-width:0 so the badge/button row wraps
+       below the avatar instead of clipping at the card edge */
+    .profile-vip-license .player-identity-matrix {
+        min-width: 220px !important;
+        text-align: center;
+    }
+    .profile-vip-license .player-identity-matrix > div:first-of-type {
+        justify-content: center !important;
+    }
+}
+
+/* ---- 9. Team setup stepper — compress instead of clipping off-screen ---- */
+@media (max-width: 560px) {
+    .setup-step { padding: var(--space-sm) 4px; gap: 6px; }
+    .setup-step-label { font-size: 11px; letter-spacing: 0; }
+    .setup-step-connector { width: 18px; margin: 0 4px; }
+}
+
+/* ---- 10. Profile XP numbers — never touch the card's edge ---- */
+@media (max-width: 700px) {
+    .profile-vip-license .authority-lower-tier {
+        flex-wrap: wrap !important;
+        gap: 18px !important;
+    }
+    .profile-vip-license .xp-progress-system { min-width: 0 !important; }
+}
+
+/* ---- 8. Multiplayer hub — stack cards + un-center tall content on phones ---- */
+@media (max-width: 760px) {
+    .lobby-title { font-size: 32px !important; letter-spacing: 2px !important; }
+    .lobby-grid { grid-template-columns: 1fr !important; }
+    .lobby-container {
+        justify-content: flex-start !important;
+        padding-top: 84px !important;
+    }
+}

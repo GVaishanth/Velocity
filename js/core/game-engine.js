@@ -125,7 +125,17 @@ window.GameEngine = (() => {
     /* ===== SCREEN MANAGEMENT ===== */
 
     function goToScreen(screenId, options = {}) {
-        if (transitioning && !options.force) return;
+        const directorReady = typeof TransitionDirector !== 'undefined' && TransitionDirector.isReady();
+
+        if (transitioning && !options.force) {
+            // Rapid navigation: let the director cancel its in-flight sequence
+            // and take over from the cover state (no flash, no queue pile-up).
+            if (directorReady && TransitionDirector.isRunning()) {
+                options.force = true;
+            } else {
+                return;
+            }
+        }
 
         const targetScreen = document.getElementById(`screen-${screenId}`);
         if (!targetScreen) {
@@ -134,16 +144,16 @@ window.GameEngine = (() => {
         }
 
         previousScreen = currentScreen;
-        const isReverse = options.reverse || screenId === 'home';
         const transitionColor = options.color || getDefaultColor(screenId);
 
         clearSubsystems();
 
-        if (options.transition === 'dive') {
+        if ((options.transition === 'dive' || options.transition === 'cinematic') && directorReady) {
             transitioning = true;
-            performDiveTransition(screenId, transitionColor, isReverse, () => {
-                doScreenSwitch(screenId);
-                transitioning = false;
+            TransitionDirector.go(screenId, currentScreen, {
+                color: transitionColor,
+                swap: () => doScreenSwitch(screenId, true),
+                done: () => { transitioning = false; }
             });
             return;
         }
@@ -151,7 +161,7 @@ window.GameEngine = (() => {
         doScreenSwitch(screenId);
     }
 
-    function doScreenSwitch(screenId) {
+    function doScreenSwitch(screenId, skipEnterAnim = false) {
         console.log(`[GameEngine] Screen transition: ${previousScreen} → ${screenId}`);
         
         // ROUTE VALIDATION + FAILSAFE
@@ -176,7 +186,11 @@ window.GameEngine = (() => {
         try {
             targetScreen.classList.add('active');
             targetScreen.classList.remove('screen-exit');
-            targetScreen.classList.add('screen-enter');
+            // When the TransitionDirector swapped us in, it runs its own
+            // staged chunk entrance — suppress the generic whole-screen enter.
+            if (!skipEnterAnim) {
+                targetScreen.classList.add('screen-enter');
+            }
 
             currentScreen = screenId;
             StateManager.set('currentScreen', screenId);
@@ -186,11 +200,6 @@ window.GameEngine = (() => {
 
         const content = targetScreen.querySelector('.screen-content');
         if (content) content.scrollTop = 0;
-
-        // TEMP DIAGNOSTICS (remove in prod)
-        console.log(`[DIAG] Page: ${screenId} | Init: active | Render: ${targetScreen.classList.contains('active') ? 'OK' : 'PENDING'}`);
-        if (typeof window.__VELOCITY_DIAG === 'undefined') window.__VELOCITY_DIAG = [];
-        window.__VELOCITY_DIAG.push({time: Date.now(), screen: screenId, mode: StateManager.get('mode')});
         } catch (err) {
             console.error('[GameEngine] Screen switch render error:', err);
             if (typeof ErrorBoundary !== 'undefined') {
@@ -199,60 +208,6 @@ window.GameEngine = (() => {
             // Fallback UI
             const fallback = document.getElementById('screen-home');
             if (fallback) fallback.classList.add('active');
-        }
-    }
-
-    function performDiveTransition(targetScreen, color, isReverse, callback) {
-        const overlay = document.getElementById('transition-overlay');
-        const tunnel = document.getElementById('transition-tunnel');
-
-        if (!overlay || !tunnel) {
-            callback();
-            return;
-        }
-
-        tunnel.style.setProperty('--tunnel-color', color);
-        tunnel.style.background = `radial-gradient(circle at center,
-            transparent 0%,
-            transparent 5%,
-            ${color}33 15%,
-            ${color}88 30%,
-            ${color}ff 60%,
-            ${color}ff 100%
-        )`;
-
-        overlay.classList.add('active');
-
-        if (isReverse) {
-            tunnel.style.animation = 'none';
-            void tunnel.offsetWidth;
-            tunnel.classList.add('tunnel-reverse');
-
-            setTimeout(() => {
-                callback();
-            }, 400);
-
-            setTimeout(() => {
-                overlay.classList.remove('active');
-                tunnel.classList.remove('tunnel-reverse');
-                tunnel.style.animation = '';
-            }, 800);
-        } else {
-            tunnel.style.animation = 'none';
-            void tunnel.offsetWidth;
-            tunnel.classList.add('tunnel-effect');
-
-            AudioManager.diveTransition();
-
-            setTimeout(() => {
-                callback();
-            }, 700);
-
-            setTimeout(() => {
-                overlay.classList.remove('active');
-                tunnel.classList.remove('tunnel-effect');
-                tunnel.style.animation = '';
-            }, 1200);
         }
     }
 
@@ -337,6 +292,45 @@ window.GameEngine = (() => {
 
             if (e.key === 'Escape' && currentScreen !== 'home') {
                 e.preventDefault();
+                // Guard live sessions: an accidental ESC must not nuke a race
+                // in progress. Ask for confirmation first (fall back to staying
+                // put if the modal system is unavailable).
+                if (currentScreen === 'race') {
+                    if (typeof Modals !== 'undefined' && Modals.confirm) {
+                        // Pause locally only when this client controls the sim
+                        // (single player, or the MP Host). An MP Challenger's
+                        // local pause can't stop the Host's authoritative sim.
+                        const isMpClient = typeof OnlineManager !== 'undefined'
+                            && typeof RaceEngine !== 'undefined'
+                            && RaceEngine.getState?.()?.isMultiplayerRace
+                            && !OnlineManager.isHost();
+                        EventBus.emit('race:pause');
+                        if (!isMpClient && typeof RaceEngine !== 'undefined' && typeof RaceEngine.pause === 'function') RaceEngine.pause();
+                        Modals.confirm({
+                            title: 'Abandon Live Race?',
+                            body: 'Leaving now will forfeit the session in progress. Are you sure?',
+                            confirmText: 'Abandon Race',
+                            cancelText: 'Keep Racing',
+                            onConfirm: () => EventBus.emit('nav:home'),
+                            onCancel: () => {
+                                if (!isMpClient && typeof RaceEngine !== 'undefined' && typeof RaceEngine.resume === 'function') RaceEngine.resume();
+                            }
+                        });
+                    }
+                    return;
+                }
+                if (currentScreen === 'race-weekend') {
+                    if (typeof Modals !== 'undefined' && Modals.confirm) {
+                        Modals.confirm({
+                            title: 'Leave Race Weekend?',
+                            body: 'Your session progress may be lost. Are you sure?',
+                            confirmText: 'Leave Weekend',
+                            cancelText: 'Stay',
+                            onConfirm: () => EventBus.emit('nav:home')
+                        });
+                    }
+                    return;
+                }
                 EventBus.emit('nav:home');
                 return;
             }

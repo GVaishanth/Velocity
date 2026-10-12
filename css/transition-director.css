@@ -1,0 +1,330 @@
+/* ============================================================
+   VELOCITY — TRANSITION DIRECTOR (stage & cover identities)
+   Motion is driven by the Web Animations API from
+   js/ui/transition-director.js — this file holds layout/looks only.
+   All animation is transform/opacity (compositor thread).
+   ============================================================ */
+
+.tr-stage {
+    position: fixed;
+    inset: 0;
+    z-index: 9000;
+    visibility: hidden;
+    pointer-events: none;
+    overflow: hidden;
+}
+.tr-stage.tr-live {
+    visibility: visible;
+    pointer-events: all;
+}
+
+/* While a transition is animating, suspend backdrop-filters on the
+   involved screens — a moving cover forces full-screen blur re-samples
+   every frame otherwise (major jank on profile/console cards). */
+.game-screen.tr-anim, .game-screen.tr-anim * {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+}
+
+/* ---- cover scaffolding ---- */
+.tr-cover { position: absolute; inset: 0; overflow: hidden; }
+
+.tr-sheet {                       /* solid sheet / safety panel */
+    position: absolute;
+    inset: -2% ;
+    background: #050507;
+    opacity: 0;
+    will-change: transform, opacity;
+}
+
+.tr-edge {                        /* glowing lip that travels with wipes */
+    position: absolute;
+    background: var(--c);
+    box-shadow: 0 0 18px var(--c), 0 0 46px var(--c);
+}
+.tr-edge-h { top: 0; bottom: 0; width: 4px; right: 0; }
+.tr-edge-v { left: 0; right: 0; height: 4px; bottom: 0; }
+
+.tr-label {
+    position: absolute;
+    left: 50%;
+    bottom: 7%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    opacity: 0;
+    white-space: nowrap;
+    will-change: transform, opacity;
+    z-index: 5;
+}
+.tr-label::before,
+.tr-label::after {
+    content: '';
+    width: clamp(24px, 5vw, 64px);
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--c));
+}
+.tr-label::after {
+    background: linear-gradient(90deg, var(--c), transparent);
+}
+.tr-label-icon {
+    font-size: 20px;
+    filter: drop-shadow(0 0 10px var(--c));
+}
+.tr-label-name {
+    font-family: 'Orbitron', sans-serif;
+    font-size: clamp(12px, 1.6vw, 16px);
+    font-weight: 700;
+    letter-spacing: 0.44em;
+    text-indent: 0.44em;          /* optically re-center letterspacing */
+    color: var(--c);
+    text-shadow: 0 0 16px var(--c);
+}
+
+/* ============================================================
+   IDENTITY — HOME : tire tunnel dive
+   ============================================================ */
+.tr-ring {
+    position: absolute;
+    left: 50%; top: 50%;
+    /* small raster footprint: 60vmax texture, scale() (compositor)
+       handles the growth — no per-frame re-paint of a huge blurred circle */
+    width: 60vmax; height: 60vmax;
+    margin: -30vmax 0 0 -30vmax;
+    border-radius: 50%;
+    border: 3px solid var(--c);
+    outline: 1px solid transparent;       /* force its own compositor layer cleanly */
+    opacity: 0;
+    will-change: transform, opacity;
+}
+
+/* ============================================================
+   IDENTITY — SINGLEPLAYER : camera dives through a spinning
+   racing rim; screen swap hidden inside the black hub bore.
+   ============================================================ */
+.tr-wheel {
+    position: absolute;
+    left: 50%; top: 50%;
+    width: 90vmin;
+    height: 90vmin;
+    transform: translate(-50%, -50%) scale(0.12);
+    transform-origin: center;
+    opacity: 0;
+    will-change: transform;
+    /* no filters here — the glow is baked into the image so the GPU
+       only ever scales a static texture */
+}
+.tr-wheel img {
+    width: 100%;
+    height: 100%;
+    display: block;
+    image-rendering: auto;
+}
+
+/* ============================================================
+   IDENTITY — MULTIPLAYER : uplink radar
+   ============================================================ */
+.tr-radar {
+    position: absolute;
+    left: 50%; top: 50%;
+    width: min(58vmin, 500px);
+    transform: translate(-50%, -50%);
+    aspect-ratio: 1;
+    border-radius: 50%;
+    border: 1px solid rgba(255,0,51,0.4);
+    /* inset-only glow kept small — large inset blurs are repaint-heavy
+       while the sheet + sweep are animating */
+    box-shadow: inset 0 0 28px rgba(255,0,51,0.10);
+}
+.tr-radar::before, .tr-radar::after {
+    content: '';
+    position: absolute;
+    border-radius: 50%;
+    border: 1px solid rgba(255,0,51,0.22);
+}
+.tr-radar::before { inset: 16.5%; }
+.tr-radar::after  { inset: 33%; }
+.tr-sweep {
+    position: absolute; inset: 0;
+    border-radius: 50%;
+    background: conic-gradient(from 0deg,
+        rgba(255,0,51,0.55) 0deg, rgba(255,0,51,0.14) 55deg, transparent 72deg);
+    will-change: transform;
+}
+.tr-node {
+    position: absolute;
+    width: 10px; height: 10px;
+    margin: -5px 0 0 -5px;
+    border-radius: 50%;
+    background: var(--c);
+    box-shadow: 0 0 14px var(--c);
+    opacity: 0;
+    will-change: transform, opacity;
+}
+.tr-link {
+    position: absolute;
+    height: 2px;
+    background: linear-gradient(90deg, var(--c), transparent);
+    transform-origin: 0 50%;
+    opacity: 0;
+    will-change: transform, opacity;
+}
+
+/* ============================================================
+   IDENTITY — PROFILE : telemetry scan
+   ============================================================ */
+.tr-scanbar {
+    position: absolute;
+    left: 5%; right: 5%; top: 0;
+    height: 3px;
+    background: var(--c);
+    box-shadow: 0 0 18px var(--c), 0 0 44px var(--c);
+    will-change: transform, opacity;
+}
+.tr-tcol {
+    position: absolute;
+    bottom: 0;
+    background: linear-gradient(to top, rgba(0,128,255,0.5), transparent 92%);
+    transform-origin: bottom center;
+    opacity: 0.32;
+    will-change: transform, opacity;
+}
+
+/* ============================================================
+   IDENTITY — TUTORIAL : pit board
+   ============================================================ */
+.tr-board {
+    position: absolute;
+    left: 50%; top: 45%;
+    transform: translate(-50%, -50%) rotate(-1.5deg);
+    width: min(620px, 82vw);
+    padding: 24px 28px;
+    background: linear-gradient(#101010, #0a0a0c);
+    border: 2px solid #FFD700;
+    border-radius: 8px;
+    box-shadow: 0 16px 54px rgba(0,0,0,0.8), 0 0 34px rgba(255,215,0,0.16);
+    will-change: transform, opacity;
+}
+.tr-board::before {               /* handle */
+    content: '';
+    position: absolute;
+    left: 50%; bottom: 100%;
+    width: 120px; height: 12px;
+    transform: translateX(-50%);
+    background: #FFD700;
+    border-radius: 4px 4px 0 0;
+}
+.tr-board-row {
+    height: 13px;
+    margin: 13px 0;
+    border-radius: 3px;
+    background: linear-gradient(90deg, rgba(255,215,0,0.85), rgba(255,215,0,0.22));
+    transform-origin: left center;
+    will-change: transform;
+}
+
+/* ============================================================
+   IDENTITY — TEAM SETUP : garage shutter slats
+   ============================================================ */
+.tr-slat {
+    position: absolute;
+    left: 0; right: 0;
+    background: linear-gradient(#17171b, #0b0b0e);
+    border-bottom: 1px solid rgba(0,255,65,0.3);
+    will-change: transform;
+}
+
+/* ============================================================
+   IDENTITY — DASHBOARD : HQ glass doors
+   ============================================================ */
+.tr-pane {
+    position: absolute;
+    top: 0; bottom: 0;
+    width: 50.6%;
+    background: linear-gradient(115deg, rgba(0,255,65,0.09), rgba(4,4,6,0.98) 42%), #050507;
+    will-change: transform;
+}
+.tr-pane-l { left: -0.5%;  border-right: 1px solid rgba(0,255,65,0.6); }
+.tr-pane-r { right: -0.5%; border-left:  1px solid rgba(0,255,65,0.6); }
+.tr-seam {
+    position: absolute;
+    left: 50%; top: 0; bottom: 0;
+    width: 3px;
+    margin-left: -1.5px;
+    background: var(--c);
+    box-shadow: 0 0 22px var(--c), 0 0 60px var(--c);
+    opacity: 0;
+    will-change: opacity;
+}
+
+/* ============================================================
+   IDENTITY — HEADQUARTERS : elevator blinds
+   ============================================================ */
+.tr-blinds { position: absolute; inset: 0; perspective: 760px; }
+.tr-blind {
+    position: absolute;
+    top: 0; bottom: 0;
+    background: linear-gradient(#141418, #0a0a0d);
+    border-right: 1px solid rgba(255,215,0,0.4);
+    will-change: transform;
+}
+.tr-rim {
+    position: absolute;
+    left: 0; right: 0; bottom: 0;
+    height: 3px;
+    background: var(--c);
+    box-shadow: 0 0 20px var(--c);
+    opacity: 0;
+    will-change: opacity;
+}
+
+/* ============================================================
+   IDENTITY — RACE WEEKEND : pit lane rush
+   ============================================================ */
+.tr-pitbox {
+    position: absolute;
+    left: 50%; top: 50%;
+    border: 2px solid rgba(0,255,65,0.55);
+    background: rgba(0,255,65,0.05);
+    opacity: 0;
+    will-change: transform, opacity;
+}
+.tr-checkstripe {
+    position: absolute;
+    left: 0; right: 0; bottom: 9%;
+    height: 40px;
+    background: repeating-conic-gradient(#e9e9e9 0% 25%, #0b0b0d 0% 50%) 0 0 / 40px 40px;
+    opacity: 0.9;
+    box-shadow: 0 -4px 24px rgba(0,0,0,0.6);
+    will-change: transform;
+}
+
+/* ============================================================
+   IDENTITY — RESULTS : chequered flag wave
+   ============================================================ */
+.tr-flagrow {
+    position: absolute;
+    left: -4%; right: -4%;
+    background: repeating-linear-gradient(90deg,
+        #ededed 0 36px, #0b0b0d 36px 72px);
+    background-position: 0 0;
+    box-shadow: 0 1px 0 rgba(0,0,0,0.35);
+    will-change: transform;
+}
+.tr-id-results .tr-label {
+    bottom: 9%;
+    padding: 12px 22px;
+    background: rgba(5,5,7,0.88);
+    border: 1px solid var(--c);
+    border-radius: 6px;
+}
+.tr-id-results .tr-label::before,
+.tr-id-results .tr-label::after { display: none; }
+
+/* ============================================================
+   Reduced motion — director plays a plain crossfade sheet.
+   ============================================================ */
+@media (prefers-reduced-motion: reduce) {
+    .tr-label { letter-spacing: 0; }
+}

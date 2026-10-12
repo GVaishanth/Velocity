@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0c1115"/>
+      <stop offset="1" stop-color="#050607"/>
+    </linearGradient>
+    <pattern id="chk" width="20" height="20" patternUnits="userSpaceOnUse">
+      <rect width="10" height="10" fill="#d8dde0"/>
+      <rect x="10" y="10" width="10" height="10" fill="#d8dde0"/>
+      <rect x="10" width="10" height="10" fill="#14181b"/>
+      <rect y="10" width="10" height="10" fill="#14181b"/>
+    </pattern>
+    <clipPath id="round"><rect width="256" height="256" rx="56"/></clipPath>
+  </defs>
+  <g clip-path="url(#round)">
+    <rect width="256" height="256" fill="url(#bg)"/>
+    <!-- speed streaks flying left from the V -->
+    <g stroke="#00FF41" stroke-linecap="round">
+      <line x1="26" y1="86"  x2="70"  y2="86"  stroke-width="9"  opacity="0.55"/>
+      <line x1="14" y1="118" x2="72"  y2="118" stroke-width="11" opacity="0.85"/>
+      <line x1="24" y1="150" x2="62"  y2="150" stroke-width="8"  opacity="0.5"/>
+    </g>
+    <!-- hero V -->
+    <path d="M64 52 L128 206 L192 52" fill="none" stroke="#eafff2"
+          stroke-width="23" stroke-linecap="round" stroke-linejoin="round"/>
+    <!-- checkered finish-line band -->
+    <rect x="0" y="216" width="256" height="22" fill="url(#chk)" opacity="0.9"/>
+    <rect x="0" y="216" width="256" height="22" fill="#00FF41" opacity="0.08"/>
+    <!-- green underglow -->
+    <rect x="36" y="242" width="184" height="6" rx="3" fill="#00FF41" opacity="0.9"/>
+  </g>
+  <rect width="256" height="256" rx="56" fill="none" stroke="#1d252b" stroke-width="4"/>
+</svg>

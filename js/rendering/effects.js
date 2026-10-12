@@ -520,6 +520,7 @@ window.Effects = (() => {
         update,
         render,
         triggerCrash,
+        triggerSmoke,
         showEventBanner,
         destroy
     };

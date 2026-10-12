@@ -166,18 +166,26 @@ window.RaceScreen = (() => {
                 PlayerControls.init(bottomBar);
             }
 
-            // Register timing table update loop
+            // Register timing table update loop.
+            // DOM-heavy UI (timing table, telemetry, sponsor HUD) is gated to
+            // ~100ms — previously TimingTable.forceUpdate() bypassed its own
+            // throttle and rebuilt the whole 24-row table DOM every RAF frame.
+            let lastDomUiTick = 0;
             if (typeof GameEngine !== 'undefined') {
                 const timingSub = {
                     update: () => {
                         if (isActive) {
-                            TimingTable.forceUpdate();
-                            if (typeof PlayerControls !== 'undefined' && PlayerControls.updateTelemetry) {
-                                PlayerControls.updateTelemetry();
-                            }
+                            const nowMs = performance.now();
+                            if (nowMs - lastDomUiTick >= 100) {
+                                lastDomUiTick = nowMs;
+                                TimingTable.update();
+                                if (typeof PlayerControls !== 'undefined' && PlayerControls.updateTelemetry) {
+                                    PlayerControls.updateTelemetry();
+                                }
 
-                            // --- LIVE SPONSOR TRACKING ---
-                            updateSponsorHUD();
+                                // --- LIVE SPONSOR TRACKING ---
+                                updateSponsorHUD();
+                            }
 
                             // Keep StateManager.race aligned to the authoritative RaceEngine live state for saves/reconnects
                             const now = Date.now();

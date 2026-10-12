@@ -12,7 +12,9 @@
    - cliffLap: lap when performance drops sharply
    - deathLap: lap when tire is unusable
    - degradationRate: how fast grip is lost per lap
-   - weatherSuitability: { dry, light_rain, heavy_rain }
+   - weatherSuitability: { DRY, CLOUDY, DRYING, LIGHT_RAIN, HEAVY_RAIN }
+     (all 5 weather states must be present — a missing key silently
+      applies a flat 0.8 grip penalty in the tire model)
 */
 
 const TIRE_COMPOUNDS = {
@@ -31,6 +33,8 @@ const TIRE_COMPOUNDS = {
         lapTimeBonus: -0.6,
         weatherSuitability: {
             DRY: 1.0,
+            CLOUDY: 1.0,
+            DRYING: 0.35,
             LIGHT_RAIN: 0.4,
             HEAVY_RAIN: 0.15
         },
@@ -51,6 +55,8 @@ const TIRE_COMPOUNDS = {
         lapTimeBonus: 0.0,
         weatherSuitability: {
             DRY: 1.0,
+            CLOUDY: 1.0,
+            DRYING: 0.42,
             LIGHT_RAIN: 0.45,
             HEAVY_RAIN: 0.15
         },
@@ -71,6 +77,8 @@ const TIRE_COMPOUNDS = {
         lapTimeBonus: 0.4,
         weatherSuitability: {
             DRY: 1.0,
+            CLOUDY: 1.0,
+            DRYING: 0.48,
             LIGHT_RAIN: 0.4,
             HEAVY_RAIN: 0.15
         },
@@ -91,6 +99,8 @@ const TIRE_COMPOUNDS = {
         lapTimeBonus: 2.5,
         weatherSuitability: {
             DRY: 0.7,
+            CLOUDY: 0.95,
+            DRYING: 0.95,
             LIGHT_RAIN: 1.05,
             HEAVY_RAIN: 0.7
         },
@@ -111,6 +121,8 @@ const TIRE_COMPOUNDS = {
         lapTimeBonus: 5.5,
         weatherSuitability: {
             DRY: 0.55,
+            CLOUDY: 0.60,
+            DRYING: 0.85,
             LIGHT_RAIN: 0.85,
             HEAVY_RAIN: 1.10
         },

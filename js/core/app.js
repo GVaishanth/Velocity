@@ -75,16 +75,21 @@ const App = (() => {
      * Step 1: Verify all data modules loaded
      */
     function verifyDataLoaded() {
-        const required = [
-            'TEAMS_DATA',
-            'DRIVERS_DATA',
-            'STAFF_DATA',
-            'TRACKS_DATA',
-            'ACHIEVEMENTS_DATA',
-            'TIRE_COMPOUNDS'
-        ];
+        // NOTE: data files declare these as top-level `const` — they are lexical
+        // globals, NOT properties of window. `window['X']` is therefore always
+        // undefined even in a healthy page, so checks must use lexical typeof.
+        const checks = {
+            TEAMS_DATA: () => typeof TEAMS_DATA !== 'undefined' && Array.isArray(TEAMS_DATA) && TEAMS_DATA.length > 0,
+            DRIVERS_DATA: () => typeof DRIVERS_DATA !== 'undefined' && Array.isArray(DRIVERS_DATA) && DRIVERS_DATA.length > 0,
+            STAFF_DATA: () => typeof STAFF_DATA !== 'undefined' && !!STAFF_DATA,
+            TRACKS_DATA: () => typeof TRACKS_DATA !== 'undefined' && Array.isArray(TRACKS_DATA) && TRACKS_DATA.length > 0,
+            ACHIEVEMENTS_DATA: () => typeof ACHIEVEMENTS_DATA !== 'undefined' && !!ACHIEVEMENTS_DATA,
+            TIRE_COMPOUNDS: () => typeof TIRE_COMPOUNDS !== 'undefined' && !!TIRE_COMPOUNDS
+        };
 
-        const missing = required.filter(name => typeof window[name] === 'undefined');
+        const missing = Object.keys(checks).filter(name => {
+            try { return !checks[name](); } catch (e) { return true; }
+        });
         if (missing.length > 0) {
             console.error('Missing data modules:', missing);
             throw new Error('Required data not loaded: ' + missing.join(', '));

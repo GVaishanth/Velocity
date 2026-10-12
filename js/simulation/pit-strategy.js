@@ -237,8 +237,13 @@ window.PitStrategy = (() => {
             }
         }
 
-        // Mandatory compound rule: must use 2 different compounds (dry race)
-        if (!weatherState.isWet && !TireModel.hasUsedTwoCompounds(car.tireState)) {
+        // Mandatory compound rule: must use 2 different compounds (dry race only).
+        // isWet is a METHOD on WeatherSystem — weatherState.isWet never exists as a
+        // property, so reading it directly always evaluated as "dry race".
+        const isWetRace = (typeof WeatherSystem !== 'undefined' && typeof WeatherSystem.isWet === 'function')
+            ? WeatherSystem.isWet(weatherState)
+            : (weatherState.current === 'LIGHT_RAIN' || weatherState.current === 'HEAVY_RAIN');
+        if (!isWetRace && !TireModel.hasUsedTwoCompounds(car.tireState)) {
             const currentCompound = car.tireState.compoundId;
             // Force a different compound
             const alternatives = ['SOFT', 'MEDIUM', 'HARD'].filter(c => c !== currentCompound);

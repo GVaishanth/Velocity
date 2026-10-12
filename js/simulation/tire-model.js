@@ -89,8 +89,9 @@ window.TireModel = (() => {
         tireState.isInCliff = tireState.wearPercent >= 75;
         tireState.isWornOut = tireState.wearPercent >= 100;
 
-        // Temperature simulation
-        updateTireTemperature(tireState, drivingMode, weather);
+        // Temperature simulation (pass trackTemp through — it was silently
+        // dropped at this call site, making the temp target shift dead code)
+        updateTireTemperature(tireState, drivingMode, weather, trackTemp);
 
         return tireState;
     }

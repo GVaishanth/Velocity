@@ -399,15 +399,22 @@ window.OnlineManager = (() => {
                         DashboardScreen.render();
                     }
                 }
-            } else if (data.type === 'CLIENT_TOGGLE_WEEKEND_READY') {
-                const player = onlinePlayers.find(op => op.connectionId === conn.peer);
-                if (player) {
-                    player.isReadyForWeekend = !player.isReadyForWeekend;
-                    broadcastLobbyUpdate();
-                    if (typeof DashboardScreen !== 'undefined' && DashboardScreen.isPageActive()) {
-                        DashboardScreen.render();
-                    }
-                }
+            } else if (data.type === 'SKIP_VOTE_START') {
+                // A Challenger started a skip vote: open a fresh vote session on
+                // the Host (modal + requester's implicit YES) and RELAY to the
+                // other clients so they get to vote too. Previously these
+                // messages were silently dropped, so multi-user skips never passed.
+                startSkipVoteSession(data.requester);
+                relayToOtherClients(conn.peer, data);
+            } else if (data.type === 'SKIP_VOTE_CONFIRM') {
+                // Count the vote on the Host, then relay so other clients'
+                // tallies stay accurate.
+                handleSkipVoteConfirm(data.voter);
+                relayToOtherClients(conn.peer, data);
+            } else if (data.type === 'PAUSE_REQUEST') {
+                // Challenger pause request: valid ONLY here on the Host (the
+                // client-side handler intentionally ignores it).
+                handlePauseRequest(data.requesterId || conn.peer);
             } else if (data.type === 'CLIENT_CONNECTING') {
                 Notifications.info('Constructor Connected!', `Uplink established with ${data.username || 'Challenger'}.`);
                 
@@ -652,7 +659,8 @@ window.OnlineManager = (() => {
                 Notifications.success('Race Weekend Initiated', 'Entering the paddock...');
                 if (typeof EventBus !== 'undefined') EventBus.emit('nav:go', { screen: 'race-weekend', color: '#00FF41' });
             } else if (data.type === 'SKIP_VOTE_START') {
-                handleSkipVote(data.requester);
+                // Fresh vote session arriving from (or relayed by) the Host
+                startSkipVoteSession(data.requester);
             } else if (data.type === 'SKIP_VOTE_CONFIRM') {
                 handleSkipVoteConfirm(data.voter);
             } else if (data.type === 'QUALI_SYNC') {
@@ -677,6 +685,8 @@ window.OnlineManager = (() => {
             } else if (data.type === 'CD_SYNC') {
                 if (typeof RaceWeekendScreen !== 'undefined') RaceWeekendScreen.syncCD(data);
             } else if (data.type === 'PAUSE_REQUEST') {
+                // Only the Host can arbitrate pauses; handlePauseRequest()
+                // self-guards with if (!isHost) return, so this is a no-op here.
                 handlePauseRequest(data.requesterId);
             } else if (data.type === 'LIVERY_UPDATE') {
                 handleLiveryUpdate(data.connectionId || conn.peer, data.livery);
@@ -850,9 +860,32 @@ window.OnlineManager = (() => {
     }
 
     let skipVotes = new Set();
+
+    /**
+     * Relay a host-received client message to all OTHER clients.
+     * (Star topology: clients only connect to the Host, so nothing reaches
+     * client B unless the Host forwards it.)
+     */
+    function relayToOtherClients(excludePeerId, msg) {
+        clientConnections.forEach(c => {
+            if (c && c.open && c.peer !== excludePeerId) c.send(msg);
+        });
+    }
+
+    /**
+     * Open a fresh skip-vote session. Resets stale votes from any previous
+     * (failed/abandoned/older-race) vote — previously votes only cleared on
+     * success, corrupting later thresholds. The requester's YES is implicit.
+     */
+    function startSkipVoteSession(requester) {
+        if (!requester) return;
+        skipVotes = new Set([requester]);
+        handleSkipVote(requester);
+    }
+
     function handleSkipVote(requester) {
         if (requester === myUsername) return;
-        
+
         // Show notification that a vote started
         Notifications.info('Skip Vote Started', `${requester} initiated a vote to skip.`);
 
@@ -864,7 +897,10 @@ window.OnlineManager = (() => {
             onConfirm: () => {
                 broadcastAction('SKIP_VOTE_CONFIRM', { voter: myUsername });
                 handleSkipVoteConfirm(myUsername);
-            }
+            },
+            // Declining now actively clears THIS voter's YES if they had one,
+            // so a declined vote can't linger and pass later.
+            onCancel: () => { skipVotes.delete(myUsername); }
         });
     }
 
@@ -929,29 +965,45 @@ window.OnlineManager = (() => {
         }
     }
 
+    // Tracks which client (peer id) owns the current pause, so only THEY (or
+    // the Host's own pause button, a separate local path) can release it.
+    // Previously any Challenger could spend nothing and cancel someone else's
+    // paid pause instantly.
+    let pausedByPeerId = null;
+
     function handlePauseRequest(requesterId) {
         if (!isHost || typeof RaceEngine === 'undefined') return;
 
         const player = onlinePlayers.find(op => op.connectionId === requesterId);
-        if (!player || player.pauseCredits <= 0) {
-            const conn = clientConnections.find(c => c.peer === requesterId);
-            if (conn) conn.send({ type: 'ERROR', message: 'No pause credits remaining!' });
-            return;
-        }
+        if (!player) return;
 
-        // Toggle pause
-        const targetPause = !RaceEngine.isCurrentlyPaused();
-        
-        if (targetPause) {
-            player.pauseCredits--;
-            RaceEngine.pause();
-            Notifications.warning('Race Paused', `${player.username} used a pause credit (${player.pauseCredits} left)`);
-        } else {
+        const currentlyPaused = RaceEngine.isCurrentlyPaused();
+
+        if (currentlyPaused) {
+            // RESUME branch — only the original pauser may release the grid.
+            if (pausedByPeerId && pausedByPeerId !== requesterId) {
+                const conn = clientConnections.find(c => c.peer === requesterId);
+                if (conn) conn.send({ type: 'ERROR', message: 'Only the constructor who paused can resume the race.' });
+                return;
+            }
             RaceEngine.resume();
-            Notifications.success('Race Resumed', `Host released the grid.`);
+            pausedByPeerId = null;
+            broadcastAction('RACE_PAUSE_TOGGLE', { isPaused: false, requester: player.username });
+            Notifications.success('Race Resumed', `${player.username} released the grid.`);
+        } else {
+            // PAUSE branch — costs a credit.
+            if ((player.pauseCredits || 0) <= 0) {
+                const conn = clientConnections.find(c => c.peer === requesterId);
+                if (conn) conn.send({ type: 'ERROR', message: 'No pause credits remaining!' });
+                return;
+            }
+            player.pauseCredits--;
+            pausedByPeerId = requesterId;
+            RaceEngine.pause();
+            broadcastAction('RACE_PAUSE_TOGGLE', { isPaused: true, creditsLeft: player.pauseCredits, requester: player.username });
+            Notifications.warning('Race Paused', `${player.username} used a pause credit (${player.pauseCredits} left)`);
         }
 
-        broadcastAction('RACE_PAUSE_TOGGLE', { isPaused: targetPause, creditsLeft: player.pauseCredits, requester: player.username });
         if (typeof PlayerControls !== 'undefined') PlayerControls.refresh();
         broadcastLobbyUpdate();
     }
@@ -982,8 +1034,10 @@ window.OnlineManager = (() => {
         // Authoritative multiplayer calendar from the shared CalendarService
         masterSchedule = (typeof CalendarService !== 'undefined')
             ? CalendarService.createCalendar({ seasonLength: matchSettings.races || 5, selectedTrackIds: matchSettings.selectedTrackIds || matchSettings.customCalendar, shuffle: !(matchSettings.selectedTrackIds || matchSettings.customCalendar) })
-            : (typeof TRACKS_DATA !== 'undefined' ? [...TRACKS_DATA].map(t => t.id).sort(() => Math.random() - 0.5).slice(0, matchSettings.races || 5) : ['monaco','silverstone','spa','monza','suzuka'].slice(0, matchSettings.races || 5));
+            : (typeof TRACKS_DATA !== 'undefined' ? [...TRACKS_DATA].map(t => t.id).sort(() => Math.random() - 0.5).slice(0, matchSettings.races || 5) : ['baku','nurburgring','zandvoort','shanghai','suzuka'].slice(0, matchSettings.races || 5));
         matchStarted = true;
+        skipVotes = new Set();   // fresh season: no carried-over votes
+        pausedByPeerId = null;
         persistSession({ championshipId: `champ_${roomCode}_${Date.now()}`, currentScreen: 'dashboard' });
 
         const startPackage = {
@@ -1056,6 +1110,7 @@ window.OnlineManager = (() => {
         // Those globals are shared with Single Player; multiplayer roster isolation is carried
         // by onlinePlayers and the multiplayer career snapshot.
 
+        skipVotes = new Set();   // fresh season: no carried-over votes
         if (data.settings) matchSettings = data.settings;
         if (data.masterSchedule) {
             masterSchedule = (typeof CalendarService !== 'undefined')
@@ -1197,6 +1252,7 @@ window.OnlineManager = (() => {
         persistSession,
         cleanup,
         handleSkipVoteConfirm,
+        startSkipVoteSession,
         isHost: () => isHost,
         isConnected,
         getRoomCode,
@@ -1383,7 +1439,7 @@ const MultiplayerScreen = (() => {
                         <div class="form-group" style="margin-top: 15px;">
                             <label class="form-label">TECHNICAL DIRECTOR</label>
                             <select class="select" id="hs-staff-techdir">
-                                ${STAFF_DATA?.technicalDirectors?.map(s => `<option value="${s.id}">Skill ${s.skill || 85} • ${s.name} (${s.specialty})</option>`).join('')}
+                                ${STAFF_DATA?.technicalDirectors?.map(s => `<option value="${s.id}">Skill ${s.skill || s.rating || 85} • ${s.flag || ''} ${s.name}</option>`).join('')}
                             </select>
                         </div>
                         <div class="form-group" style="margin-top: 15px;">

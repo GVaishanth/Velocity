@@ -1,8 +1,9 @@
 /* ============================================
    VELOCITY — RACE ENGINE (UPDATED)
-   - Pit limit: max 4 pit stops per car
+   - No pit stop limit (MAX_PIT_STOPS = 99)
    - Pit animation: cars slow into pit lane
    - Visual pit stop with timing
+   - Safety-Car laps counted per leader lap
    ============================================ */
 
 window.RaceEngine = (() => {
@@ -446,12 +447,14 @@ window.RaceEngine = (() => {
 
         updatePositions();
 
-        // Race event check (counter-based)
-        if (!raceState._eventCheckCounter) raceState._eventCheckCounter = 0;
-        raceState._eventCheckCounter++;
-        if (raceState._eventCheckCounter >= 30) {
+        // Race event check (SIM-TIME based, not tick-count based).
+        // Using accumulated sim seconds keeps the cadence identical whether the
+        // step size is 0.1s (live) or 0.5s (skip-to-end) — previously skipped
+        // races ran 5x fewer event checks than watched ones.
+        raceState._eventCheckTimer = (raceState._eventCheckTimer || 0) + stepSeconds;
+        if (raceState._eventCheckTimer >= 3.0) {
             checkRaceEvents();
-            raceState._eventCheckCounter = 0;
+            raceState._eventCheckTimer = 0;
         }
     }
 
@@ -726,6 +729,7 @@ window.RaceEngine = (() => {
             if (Math.random() < 0.5) {
                 car.status = 'DNF';
                 car.dnfReason = 'CRITICAL TIRE BLOWOUT — HORRIFIC BARRIER CRASH';
+                car.dnfLap = raceState.currentLap; // needed for red-flag pile-up detection
                 const blowEvent = {
                     id: 'event_' + Date.now() + '_' + Math.random().toString(36).substr(2,4),
                     type: 'INCIDENT',
@@ -897,6 +901,11 @@ window.RaceEngine = (() => {
         }
 
         // Driver-initiated pit request (player drivers only)
+        // Expire stale requests by LAP COUNT (the old setTimeout(...,100) could
+        // never span 2 laps, so requests never expired).
+        if (car.pitRequested && raceState.currentLap - (car.pitRequestedAt || 0) >= 2) {
+            car.pitRequested = false;
+        }
         if (car.isPlayer && !car.pitNextLap && !car.pitRequested && car.pitStopCount < MAX_PIT_STOPS) {
             const tireWear = car.tireState.wearPercent;
             if (tireWear > 70 && Math.random() < 0.20) {
@@ -907,13 +916,6 @@ window.RaceEngine = (() => {
                     car: car,
                     reason: 'Tires falling off, want to box?'
                 });
-
-                // Auto-expire after 2 laps if ignored
-                setTimeout(() => {
-                    if (car.pitRequested && raceState.currentLap - car.pitRequestedAt >= 2) {
-                        car.pitRequested = false;
-                    }
-                }, 100);
             }
             if (car.pitStopCount > 0) car.pitRequested = false;
         }
@@ -1180,12 +1182,16 @@ window.RaceEngine = (() => {
     }
 
     function resumeFromRedFlag() {
-        if (!raceState) return;
-        
+        // Guard: the resume timer is wall-clock, so the race may have finished,
+        // been restarted, or already resumed while the timeout was pending.
+        if (!raceState || raceState.finished || raceState.status !== 'RED_FLAG') return;
+
         raceState.status = 'SAFETY_CAR'; // Resume behind safety car
         raceState.scLapsRemaining = 2;
         isRunning = true;
-        isPaused = false;
+        // Do NOT force isPaused = false here — respect a deliberate user pause
+        // made during the stoppage. (Red flag pauses physics via isRunning, not
+        // isPaused, so no unpause is needed when the user never touched it.)
         lastTickTime = performance.now();
 
         if (typeof EventBus !== 'undefined') {
@@ -1207,13 +1213,6 @@ window.RaceEngine = (() => {
             const sc = EventSystem.checkSafetyCarTrigger(raceState, raceState.track, raceState.recentEvents);
             if (sc.triggered) {
                 triggerSafetyCar(sc.reason, sc.duration);
-            }
-        }
-
-        if (raceState.status === 'SAFETY_CAR' && raceState.scLapsRemaining > 0) {
-            raceState.scLapsRemaining--;
-            if (raceState.scLapsRemaining <= 0) {
-                resumeGreenFlag();
             }
         }
 
@@ -1312,16 +1311,27 @@ window.RaceEngine = (() => {
         const leader = raceState.cars[0];
         if (!leader) return;
 
-        // Dynamic Track Evolution: Grip increases as cars complete laps
-        if (raceState.trackGrip < 1.05) {
-            // Very small increase per lap
-            raceState.trackGrip += 0.0015;
-        }
-
         const newLap = Math.min(raceState.totalLaps, leader.lapCount + 1);
         if (newLap !== raceState.currentLap) {
             raceState.currentLap = newLap;
             if (typeof EventBus !== 'undefined') EventBus.emit('race:new_lap', { lap: newLap });
+
+            // Dynamic Track Evolution: grip increases once per LEADER LAP.
+            // Previously this ran per updateRaceLap() call (once per car per lap,
+            // ~24x per leader lap), so the whole 0.95→1.05 window closed by ~lap 3.
+            if (raceState.trackGrip < 1.05) {
+                raceState.trackGrip += 0.0015;
+            }
+
+            // Safety Car "laps remaining" are LAPS — decrement exactly once per
+            // leader lap transition (previously decremented every ~3 sim-seconds,
+            // so a "3 lap" SC ended after ~9-15 seconds).
+            if (raceState.status === 'SAFETY_CAR' && raceState.scLapsRemaining > 0) {
+                raceState.scLapsRemaining--;
+                if (raceState.scLapsRemaining <= 0) {
+                    resumeGreenFlag();
+                }
+            }
         }
 
         // --- MULTIPLAYER AUTHORITY ---

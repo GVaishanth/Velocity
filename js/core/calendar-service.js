@@ -5,8 +5,7 @@
 
 window.CalendarService = (() => {
     const SAFE_FALLBACK_IDS = [
-        'monaco', 'silverstone', 'spa', 'monza', 'suzuka',
-        'interlagos', 'bahrain', 'shanghai', 'albert_park', 'hungaroring'
+        'baku', 'nurburgring', 'zandvoort', 'shanghai', 'jeddah', 'lusail', 'cota', 'mexico_city', 'hungaroring', 'albert_park'
     ];
 
     function getTrack(id) {
